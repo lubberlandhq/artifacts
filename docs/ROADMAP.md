@@ -24,7 +24,7 @@ Status: ☐ not started · ◐ in progress · ☑ done
 
 ---
 
-## 0. Extract into this repo ◐
+## 0. Extract into this repo ☑ (2026-10-24)
 
 **Goal.** One public repo holds the Worker, the CLI and the agent skill, with no deployment's
 private values in it or its history.
