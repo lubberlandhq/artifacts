@@ -1,0 +1,5 @@
+node_modules/
+.wrangler/
+.dev.vars
+# A deployment keeps its real config outside this repo and copies it in to deploy.
+wrangler.jsonc

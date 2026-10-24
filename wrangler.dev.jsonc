@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Local development and the smoke test: `bun run dev`, then `bun run smoke`.
+  // Everything runs on localhost:8787; artifacts on <id>.localhost:8787. Sign-in is the
+  // pick-your-email dev login (DEV_LOGIN=1 in .dev.vars), so no Cloudflare account is needed.
+  "name": "artifacts-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-18",
+  "vars": {
+    "APP_ORIGIN": "http://localhost:8787",
+    "LOGIN_ORIGIN": "",
+    "CONTENT_DOMAIN": "localhost:8787",
+    "CONTENT_SCHEME": "http",
+    "ACCESS_TEAM_DOMAIN": "dev.cloudflareaccess.com",
+    "ACCESS_AUD": "dev",
+    "ORG_NAME": "Dev Org",
+    "ORG_EMAILS": "nate@dev.test,jj@dev.test",
+    "ORG_DOMAINS": "",
+    "PUBLISHERS": "nate@dev.test,agents@dev.test",
+    "ADMINS": "nate@dev.test"
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "artifacts-dev", "database_id": "local", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "artifacts-dev" }]
+}

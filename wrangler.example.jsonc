@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // A deployment's config. Copy to wrangler.jsonc (gitignored), fill in, and deploy with
+  // `wrangler d1 migrations apply DB --remote && wrangler deploy`. docs/SPEC.md §9 explains each value.
+  "name": "artifacts",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-18",
+  "workers_dev": false,
+  "observability": { "enabled": true },
+
+  "vars": {
+    "APP_ORIGIN": "https://share.example.com",
+    // The whole hostname sits behind a Cloudflare Access application; only /login runs there.
+    "LOGIN_ORIGIN": "https://share-login.example.com",
+    // A registrable domain apart from the app's, so every artifact gets its own site.
+    "CONTENT_DOMAIN": "exampleusercontent.com",
+    "CONTENT_SCHEME": "https",
+    "ACCESS_TEAM_DOMAIN": "example.cloudflareaccess.com",
+    // The login host's Access application AUD tag.
+    "ACCESS_AUD": "<access application aud>",
+    "ORG_NAME": "Example Co",
+    // Sharing mode "org": these emails plus everyone at these domains. Comma-separated.
+    "ORG_EMAILS": "",
+    "ORG_DOMAINS": "example.com",
+    // Who may publish (empty = org members), and the service admins.
+    "PUBLISHERS": "",
+    "ADMINS": "you@example.com"
+  },
+
+  "routes": [
+    { "pattern": "share.example.com", "custom_domain": true },
+    { "pattern": "share-login.example.com", "custom_domain": true },
+    // Wildcard content origins need a zone route plus a proxied "*" DNS record in that zone.
+    { "pattern": "*.exampleusercontent.com/*", "zone_name": "exampleusercontent.com" }
+  ],
+
+  // `wrangler d1 create artifacts` prints the id; `wrangler r2 bucket create artifacts`.
+  "d1_databases": [{ "binding": "DB", "database_name": "artifacts", "database_id": "<d1 database id>", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "artifacts" }]
+}

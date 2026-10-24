@@ -1,0 +1,195 @@
+#!/usr/bin/env bun
+// lshare — publish and share pages on an artifacts server (this repo's Worker).
+// The smoke suite (test/smoke.ts) runs this file. Agent usage: skills/share/SKILL.md.
+// Lines on a terminal, JSON when piped. Exit 2 usage, 4 auth, 5 API.
+//   LSHARE_URL    the server's APP_ORIGIN, e.g. https://share.example.com (required)
+//   LSHARE_TOKEN  a token from the gallery page ("Tokens for the CLI and agents")
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join, relative } from "node:path";
+
+const HELP = `lshare <command> [args]
+
+  publish <file.html|dir> [--id ID] [--title T] [--desc D] [--label L] [--remove PATH]... [--base N]
+        New artifact, or a new version of --id. A directory needs index.html at its root.
+        A new version keeps files you leave out; --remove drops one.
+  list                                   yours and shared with you
+  get <id>                               details (sharing, when you can edit)
+  share <id> [--mode private|people|org|public] [--users a@x,b@y] [--editors c@z] [--pin live|current|N]
+  versions <id>
+  comments <id>
+  rename <id> --title T [--desc D]
+  delete <id> --yes
+  open <id>                              open in the browser (macOS)
+
+env: LSHARE_URL (the server, e.g. https://share.example.com), LSHARE_TOKEN`;
+
+const tty = process.stdout.isTTY;
+const die = (code: number, msg: string): never => {
+  if (tty) console.error(`lshare: ${msg}`);
+  else console.log(JSON.stringify({ error: msg, exit: code }));
+  process.exit(code);
+};
+
+const [cmd, ...rest] = process.argv.slice(2);
+if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") {
+  console.log(HELP);
+  process.exit(cmd ? 0 : 2);
+}
+
+const FLAGS: Record<string, string[]> = {
+  publish: ["id", "title", "desc", "label", "remove", "base"],
+  share: ["mode", "users", "editors", "pin"],
+  rename: ["title", "desc"],
+  delete: ["yes"],
+};
+const BOOL = new Set(["yes"]);
+const pos: string[] = [];
+const flags: Record<string, string[]> = {};
+for (let i = 0; i < rest.length; i++) {
+  const a = rest[i];
+  if (!a.startsWith("--")) {
+    pos.push(a);
+    continue;
+  }
+  const [k, inline] = a.slice(2).split(/=(.*)/s);
+  if (!(FLAGS[cmd] ?? []).includes(k)) die(2, `unknown flag --${k} for ${cmd} (lshare --help)`);
+  const v = BOOL.has(k) ? "1" : (inline ?? rest[++i]);
+  if (v === undefined) die(2, `--${k} needs a value`);
+  (flags[k] ??= []).push(v);
+}
+const flag = (k: string) => flags[k]?.at(-1);
+const needId = () => pos[0] ?? die(2, `${cmd} needs an artifact id`);
+const base = () => (process.env.LSHARE_URL || die(2, "LSHARE_URL is not set (the server, e.g. https://share.example.com)")).replace(/\/$/, "");
+
+async function call(method: string, path: string, body?: BodyInit | object): Promise<any> {
+  const server = base();
+  const token = process.env.LSHARE_TOKEN;
+  if (!token) die(4, "LSHARE_TOKEN is not set (create one on the gallery page)");
+  const isForm = body instanceof FormData;
+  let r: Response;
+  try {
+    r = await fetch(`${server}/api${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, ...(body && !isForm ? { "Content-Type": "application/json" } : {}) },
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+    });
+  } catch (e) {
+    return die(5, `${server} unreachable: ${(e as Error).message}`);
+  }
+  const text = await r.text();
+  let j: any;
+  try {
+    j = JSON.parse(text);
+  } catch {
+    j = { error: text.slice(0, 300) };
+  }
+  if (r.status === 401 || r.status === 403) die(4, j.error ?? `HTTP ${r.status}`);
+  if (!r.ok) die(5, j.error ?? `HTTP ${r.status}`);
+  return j;
+}
+
+function out(data: unknown, lines: () => string) {
+  console.log(tty ? lines() : JSON.stringify(data));
+}
+
+function walk(dir: string): string[] {
+  return readdirSync(dir).flatMap((n) => {
+    if (n.startsWith(".") || n === "node_modules") return [];
+    const p = join(dir, n);
+    return statSync(p).isDirectory() ? walk(p) : [p];
+  });
+}
+
+const MODE: Record<string, string> = { private: "owner", people: "users", org: "org", public: "public" };
+const LABEL: Record<string, string> = { owner: "only you", users: "specific people", org: "the org", public: "anyone with the link" };
+const sharingLine = (a: any) =>
+  a.sharing
+    ? `${LABEL[a.sharing.mode]}${a.sharing.users.length ? ` (${a.sharing.users.join(", ")})` : ""}; viewers see ${a.sharing.viewers_see}${a.sharing.pinned_version ? ` v${a.sharing.pinned_version}` : ""}${a.sharing.editors.length ? `; editors ${a.sharing.editors.join(", ")}` : ""}`
+    : a.role;
+
+switch (cmd) {
+  case "publish": {
+    const src = pos[0] ?? die(2, "publish needs a file or directory");
+    let st;
+    try {
+      st = statSync(src);
+    } catch {
+      die(2, `${src}: no such file or directory`);
+    }
+    const fd = new FormData();
+    if (st!.isDirectory()) {
+      const files = walk(src);
+      if (!files.some((f) => relative(src, f) === "index.html") && !flag("id")) die(2, `${src} has no index.html`);
+      for (const f of files) fd.append("file", new Blob([readFileSync(f)]), relative(src, f).split("\\").join("/"));
+    } else {
+      fd.append("file", new Blob([readFileSync(src)]), "index.html");
+    }
+    for (const r of flags.remove ?? []) fd.append("remove", r);
+    const title = flag("title") ?? (flag("id") ? undefined : basename(src).replace(/\.html?$/, ""));
+    if (title) fd.append("title", title);
+    if (flag("desc")) fd.append("description", flag("desc")!);
+    if (flag("label")) fd.append("label", flag("label")!);
+    if (flag("base")) fd.append("base_version", flag("base")!);
+    const a = flag("id") ? await call("POST", `/artifacts/${flag("id")}/versions`, fd) : await call("POST", "/artifacts", fd);
+    out(a, () => `${a.url}\n  ${a.title} · v${a.live_version} · ${sharingLine(a)}`);
+    break;
+  }
+  case "list": {
+    const { artifacts } = await call("GET", "/artifacts");
+    out(artifacts, () =>
+      artifacts.length ? artifacts.map((a: any) => `${a.id}  v${a.live_version}  ${a.title}  [${a.sharing ? LABEL[a.sharing.mode] : a.role}]`).join("\n") : "(none)",
+    );
+    break;
+  }
+  case "get": {
+    const a = await call("GET", `/artifacts/${needId()}`);
+    out(a, () => `${a.url}\n  ${a.title} · v${a.live_version} · owner ${a.owner}\n  ${sharingLine(a)}`);
+    break;
+  }
+  case "share": {
+    const body: Record<string, unknown> = {};
+    const m = flag("mode");
+    if (m) body.mode = MODE[m] ?? die(2, "--mode is private, people, org or public");
+    if (flag("users") !== undefined) body.users = flag("users");
+    if (flag("editors") !== undefined) body.editors = flag("editors");
+    const pin = flag("pin");
+    if (pin) body.pin = /^\d+$/.test(pin) ? Number(pin) : pin;
+    if (!Object.keys(body).length) die(2, "share needs --mode, --users, --editors or --pin");
+    const a = await call("PUT", `/artifacts/${needId()}/sharing`, body);
+    out(a, () => `${a.url}\n  ${sharingLine(a)}`);
+    break;
+  }
+  case "versions": {
+    const { versions } = await call("GET", `/artifacts/${needId()}/versions`);
+    out(versions, () => versions.map((v: any) => `v${v.ver}  ${v.created_at}  ${v.author}  ${v.files} files  ${v.label}`).join("\n"));
+    break;
+  }
+  case "comments": {
+    const { comments } = await call("GET", `/artifacts/${needId()}/comments`);
+    out(comments, () =>
+      comments.length ? comments.map((c: any) => `${c.resolved ? "✓" : "•"} ${c.author} (v${c.ver}, ${c.created_at}): ${c.body}`).join("\n") : "(no comments)",
+    );
+    break;
+  }
+  case "rename": {
+    const title = flag("title") ?? die(2, "rename needs --title");
+    const a = await call("PATCH", `/artifacts/${needId()}`, { title, ...(flag("desc") !== undefined ? { description: flag("desc") } : {}) });
+    out(a, () => `${a.url}\n  ${a.title}`);
+    break;
+  }
+  case "delete": {
+    const id = needId();
+    if (!flag("yes")) die(2, `delete is permanent; rerun with --yes to delete ${id}`);
+    const r = await call("DELETE", `/artifacts/${id}`);
+    out(r, () => `deleted ${id}`);
+    break;
+  }
+  case "open": {
+    const url = `${base()}/a/${needId()}`;
+    Bun.spawnSync(["open", url]);
+    out({ url }, () => url);
+    break;
+  }
+  default:
+    die(2, `unknown command ${cmd} (lshare --help)`);
+}

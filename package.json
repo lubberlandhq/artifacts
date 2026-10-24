@@ -1,0 +1,16 @@
+{
+  "name": "artifacts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler d1 migrations apply DB --local -c wrangler.dev.jsonc && wrangler dev -c wrangler.dev.jsonc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test test/unit.test.ts test/access.test.ts",
+    "smoke": "bun test/smoke.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20251001.0",
+    "typescript": "5.9.3",
+    "wrangler": "4.134.0"
+  }
+}
