@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
-// lshare — publish and share pages on an artifacts server (this repo's Worker).
-// The smoke suite (test/smoke.ts) runs this file. Agent usage: skills/share/SKILL.md.
+// tack — publish and share pages on an artifacts server (this repo's Worker).
+// The smoke suite (test/smoke.ts) runs this file. Agent usage: skills/tack/SKILL.md.
 // Lines on a terminal, JSON when piped. Exit 2 usage, 4 auth, 5 API.
-//   LSHARE_URL    the server's APP_ORIGIN, e.g. https://share.example.com (required)
-//   LSHARE_TOKEN  a token from the gallery page ("Tokens for the CLI and agents")
+//   TACK_URL    the server's APP_ORIGIN, e.g. https://share.example.com (required)
+//   TACK_TOKEN  a token from the gallery page ("Tokens for the CLI and agents")
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 
-const HELP = `lshare <command> [args]
+const HELP = `tack <command> [args]
 
   publish <file.html|dir> [--id ID] [--title T] [--desc D] [--label L] [--remove PATH]... [--base N]
         New artifact, or a new version of --id. A directory needs index.html at its root.
@@ -21,11 +21,11 @@ const HELP = `lshare <command> [args]
   delete <id> --yes
   open <id>                              open in the browser (macOS)
 
-env: LSHARE_URL (the server, e.g. https://share.example.com), LSHARE_TOKEN`;
+env: TACK_URL (the server, e.g. https://share.example.com), TACK_TOKEN`;
 
 const tty = process.stdout.isTTY;
 const die = (code: number, msg: string): never => {
-  if (tty) console.error(`lshare: ${msg}`);
+  if (tty) console.error(`tack: ${msg}`);
   else console.log(JSON.stringify({ error: msg, exit: code }));
   process.exit(code);
 };
@@ -52,19 +52,19 @@ for (let i = 0; i < rest.length; i++) {
     continue;
   }
   const [k, inline] = a.slice(2).split(/=(.*)/s);
-  if (!(FLAGS[cmd] ?? []).includes(k)) die(2, `unknown flag --${k} for ${cmd} (lshare --help)`);
+  if (!(FLAGS[cmd] ?? []).includes(k)) die(2, `unknown flag --${k} for ${cmd} (tack --help)`);
   const v = BOOL.has(k) ? "1" : (inline ?? rest[++i]);
   if (v === undefined) die(2, `--${k} needs a value`);
   (flags[k] ??= []).push(v);
 }
 const flag = (k: string) => flags[k]?.at(-1);
 const needId = () => pos[0] ?? die(2, `${cmd} needs an artifact id`);
-const base = () => (process.env.LSHARE_URL || die(2, "LSHARE_URL is not set (the server, e.g. https://share.example.com)")).replace(/\/$/, "");
+const base = () => (process.env.TACK_URL || die(2, "TACK_URL is not set (the server, e.g. https://share.example.com)")).replace(/\/$/, "");
 
 async function call(method: string, path: string, body?: BodyInit | object): Promise<any> {
   const server = base();
-  const token = process.env.LSHARE_TOKEN;
-  if (!token) die(4, "LSHARE_TOKEN is not set (create one on the gallery page)");
+  const token = process.env.TACK_TOKEN;
+  if (!token) die(4, "TACK_TOKEN is not set (create one on the gallery page)");
   const isForm = body instanceof FormData;
   let r: Response;
   try {
@@ -191,5 +191,5 @@ switch (cmd) {
     break;
   }
   default:
-    die(2, `unknown command ${cmd} (lshare --help)`);
+    die(2, `unknown command ${cmd} (tack --help)`);
 }

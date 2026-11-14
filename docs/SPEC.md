@@ -33,7 +33,8 @@ artifact's storage. Claude does the same with `<uuid>.frame.claudeusercontent.co
   expiry), mints a single-use handoff (60 s, table `handoffs`) and redirects to
   `APP_ORIGIN/auth/callback`, which redeems it and sets the session cookie `ls_session` (HMAC
   sealed with `SESSION_SECRET`, 7 days, `HttpOnly`, `Secure`, `SameSite=Lax`).
-- **CLI and agents.** `Authorization: Bearer lsh_…`. Tokens are minted on the gallery page by a
+- **CLI and agents.** `Authorization: Bearer tck_…`. Tokens minted before the rename to Tack start with `lsh_` and
+  keep working: lookup is by hash, whatever the prefix. Tokens are minted on the gallery page by a
   signed-in person; only the SHA-256 is stored (table `tokens`). A token acts as its `owner`.
   Admins may mint a token for another publisher (`as`), which is how a tenant's agents publish
   under their own identity; `created_by` records who minted it.
@@ -139,15 +140,15 @@ answers 404. Responses carry an ETag, `X-Content-Type-Options: nosniff`,
 A page written for a Claude artifact works here unchanged. The viewer shell runs under its own
 nonce-based CSP (`src/csp.ts`).
 
-## 7. CLI: `lshare`
+## 7. CLI: `tack`
 
-`cli/lshare` (bun). Environment: `LSHARE_URL` (the deployment's `APP_ORIGIN`), `LSHARE_TOKEN`.
+`cli/tack` (bun). Environment: `TACK_URL` (the deployment's `APP_ORIGIN`), `TACK_TOKEN`.
 Commands: `publish`, `list`, `get`, `share`, `versions`, `comments`, `rename`, `delete`, `open`.
 Prints lines on a terminal and JSON when piped. Exit codes: 2 usage, 4 auth, 5 API.
 
 ## 8. Agent skill
 
-`skills/share/SKILL.md` tells an agent when to publish, how to call `lshare`, the page contract
+`skills/tack/SKILL.md` tells an agent when to publish, how to call `tack`, the page contract
 (section 6), and to confirm the audience with the person before sharing beyond them.
 
 ## 9. Deploy configuration

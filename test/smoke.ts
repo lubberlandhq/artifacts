@@ -1,5 +1,5 @@
 // End-to-end against `bun run dev` (wrangler dev -c wrangler.dev.jsonc on :8787). Exercises what a person does:
-// sign in, mint a CLI token, publish with lshare, view through the shell and the content origin,
+// sign in, mint a CLI token, publish with tack, view through the shell and the content origin,
 // share each way, pin, comment, and check the refusals. Exit 1 on the first failed check.
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
@@ -32,10 +32,10 @@ const content = (src: string) => {
   const u = new URL(src);
   return fetch(`http://127.0.0.1:${port}${u.pathname}`, { headers: { Host: u.host } });
 };
-const LSHARE_BIN = process.env.LSHARE_BIN ?? join(import.meta.dir, "../cli/lshare");
-const lshare = (token: string, ...args: string[]) => {
-  const r = spawnSync("bun", [LSHARE_BIN, ...args], {
-    env: { ...process.env, LSHARE_URL: APP, LSHARE_TOKEN: token },
+const TACK_BIN = process.env.TACK_BIN ?? join(import.meta.dir, "../cli/tack");
+const tack = (token: string, ...args: string[]) => {
+  const r = spawnSync("bun", [TACK_BIN, ...args], {
+    env: { ...process.env, TACK_URL: APP, TACK_TOKEN: token },
     encoding: "utf8",
   });
   return { code: r.status, json: r.stdout.trim() ? JSON.parse(r.stdout) : null };
@@ -48,16 +48,16 @@ check("dev sign-in sets a session", nate.startsWith("ls_session="));
 
 // Token for the CLI
 const tok = await (await api(nate, "/tokens", { method: "POST", body: JSON.stringify({ label: "smoke" }) })).json();
-check("token minted", typeof tok.token === "string" && tok.token.startsWith("lsh_"));
+check("token minted", typeof tok.token === "string" && tok.token.startsWith("tck_"));
 check("non-publisher can't mint", (await api(client, "/tokens", { method: "POST", body: "{}" })).status === 403);
 
 // Publish a two-file page with the CLI
-const dir = mkdtempSync(join(tmpdir(), "lshare-"));
+const dir = mkdtempSync(join(tmpdir(), "tack-"));
 mkdirSync(join(dir, "assets"));
 writeFileSync(join(dir, "index.html"), `<!doctype html><title>Smoke</title><link rel="stylesheet" href="assets/s.css"><h1>v1</h1>`);
 writeFileSync(join(dir, "assets/s.css"), "h1{color:teal}");
-const pub = lshare(tok.token, "publish", dir, "--title", "Smoke test", "--label", "first");
-check("lshare publish exits 0", pub.code === 0, JSON.stringify(pub.json));
+const pub = tack(tok.token, "publish", dir, "--title", "Smoke test", "--label", "first");
+check("tack publish exits 0", pub.code === 0, JSON.stringify(pub.json));
 const id: string = pub.json.id;
 check("artifact id is a DNS label", /^[a-z0-9]{20}$/.test(id));
 check("starts private", pub.json.sharing?.mode === "owner");
@@ -84,7 +84,7 @@ check("signed-in stranger refused", !(await (await fetch(`${APP}/a/${id}`, { hea
 check("stranger API sees 404", (await api(client, `/artifacts/${id}`)).status === 404);
 
 // Share with specific people
-let s = lshare(tok.token, "share", id, "--mode", "people", "--users", "client@acme.example");
+let s = tack(tok.token, "share", id, "--mode", "people", "--users", "client@acme.example");
 check("share with people", s.code === 0 && s.json.sharing.mode === "users");
 check("named person can view", (await fetch(`${APP}/a/${id}`, { headers: { Cookie: client } })).status === 200);
 check("viewer gets no sharing details", (await (await api(client, `/artifacts/${id}`)).json()).sharing === undefined);
@@ -93,15 +93,15 @@ check("viewer can't change sharing", (await api(client, `/artifacts/${id}/sharin
 check("JJ (org, not named) refused", (await api(jj, `/artifacts/${id}`)).status === 404);
 
 // Org
-lshare(tok.token, "share", id, "--mode", "org");
+tack(tok.token, "share", id, "--mode", "org");
 check("org mode admits JJ", (await api(jj, `/artifacts/${id}`)).status === 200);
 check("org mode drops the client", (await api(client, `/artifacts/${id}`)).status === 404);
 
 // Public + pin
-s = lshare(tok.token, "share", id, "--mode", "public", "--pin", "current");
+s = tack(tok.token, "share", id, "--mode", "public", "--pin", "current");
 check("public, pinned to v1", s.json.sharing.mode === "public" && s.json.sharing.pinned_version === 1);
 writeFileSync(join(dir, "index.html"), `<!doctype html><title>Smoke</title><link rel="stylesheet" href="assets/s.css"><h1>v2</h1>`);
-const v2 = lshare(tok.token, "publish", join(dir, "index.html"), "--id", id, "--label", "second");
+const v2 = tack(tok.token, "publish", join(dir, "index.html"), "--id", id, "--label", "second");
 check("publish v2 keeps files left out", v2.code === 0 && v2.json.live_version === 2);
 const anonFrame = await (await fetch(`${APP}/api/artifacts/${id}/frame?v=2`)).json();
 check("anonymous sees pinned v1 even when asking for v2", anonFrame.version === 1);
@@ -109,21 +109,21 @@ check("anonymous v1 content", (await (await content(anonFrame.src)).text()).incl
 const ownerFrame = await (await api(nate, `/artifacts/${id}/frame`)).json();
 check("owner sees live v2", ownerFrame.version === 2 && (await (await content(ownerFrame.src)).text()).includes("<h1>v2</h1>"));
 check("v2 still has the css (copied forward)", (await content(ownerFrame.src + "assets/s.css")).status === 200);
-lshare(tok.token, "share", id, "--pin", "live");
+tack(tok.token, "share", id, "--pin", "live");
 check("unpinned: anonymous follows live", (await (await fetch(`${APP}/api/artifacts/${id}/head`)).json()).version === 2);
 
 // Concurrency guard
-const stale = lshare(tok.token, "publish", join(dir, "index.html"), "--id", id, "--base", "1");
+const stale = tack(tok.token, "publish", join(dir, "index.html"), "--id", id, "--base", "1");
 check("publish built on a stale version is refused", stale.code === 5 && /newer/.test(stale.json?.error ?? ""));
 
 // Comments
 check("anonymous can't comment", (await fetch(`${APP}/api/artifacts/${id}/comments`, { method: "POST", body: "{}" })).status === 401);
 check("JJ comments", (await api(jj, `/artifacts/${id}/comments`, { method: "POST", body: JSON.stringify({ body: "Looks right" }) })).status === 201);
-const cl = lshare(tok.token, "comments", id);
-check("lshare reads comments", cl.json.length === 1 && cl.json[0].author === "jj@dev.test");
+const cl = tack(tok.token, "comments", id);
+check("tack reads comments", cl.json.length === 1 && cl.json[0].author === "jj@dev.test");
 
 // Editors
-lshare(tok.token, "share", id, "--mode", "private", "--editors", "jj@dev.test");
+tack(tok.token, "share", id, "--mode", "private", "--editors", "jj@dev.test");
 const fdj = new FormData();
 fdj.append("file", new Blob(["<h1>by jj</h1>"]), "index.html");
 check("editor can publish while private", (await api(jj, `/artifacts/${id}/versions`, { method: "POST", body: fdj })).status === 201);
@@ -141,27 +141,27 @@ noIndex.append("file", new Blob(["x"]), "page.html");
 noIndex.append("title", "x");
 check("artifact without index.html refused", (await api(nate, "/artifacts", { method: "POST", body: noIndex })).status === 400);
 check("login next can't leave the site", (await fetch(`${APP}/login/dev`, { method: "POST", body: new URLSearchParams({ email: "nate@dev.test", next: "//evil.example" }), redirect: "manual" })).headers.get("location") === "/");
-check("unknown CLI flag exits 2", lshare(tok.token, "list", "--bogus").code === 2);
-check("bad token exits 4", lshare("lsh_nope", "list").code === 4);
+check("unknown CLI flag exits 2", tack(tok.token, "list", "--bogus").code === 2);
+check("bad token exits 4", tack("tck_nope", "list").code === 4);
 
 // A tenant's agents: an admin mints their token; they see only what they publish
 const tenantTok = await (await api(nate, "/tokens", { method: "POST", body: JSON.stringify({ label: "tenant", as: "agents@dev.test" }) })).json();
-check("admin mints a token for another publisher", tenantTok.owner === "agents@dev.test" && tenantTok.token?.startsWith("lsh_"));
+check("admin mints a token for another publisher", tenantTok.owner === "agents@dev.test" && tenantTok.token?.startsWith("tck_"));
 check("non-admin can't mint for someone else", (await api(jj, "/tokens", { method: "POST", body: JSON.stringify({ as: "agents@dev.test" }) })).status === 403);
 check("admin can't mint for a non-publisher", (await api(nate, "/tokens", { method: "POST", body: JSON.stringify({ as: "jj@dev.test" }) })).status === 400);
 check("minter lists the tenant token", ((await (await api(nate, "/tokens")).json()).tokens as any[]).some((t) => t.owner === "agents@dev.test"));
-const tpub = lshare(tenantTok.token, "publish", join(dir, "index.html"), "--title", "Tenant page");
+const tpub = tack(tenantTok.token, "publish", join(dir, "index.html"), "--title", "Tenant page");
 check("tenant publishes as itself", tpub.code === 0 && tpub.json.owner === "agents@dev.test");
-check("tenant can't open Nate's page", lshare(tenantTok.token, "get", id).code === 5);
-check("tenant's list holds only its own", lshare(tenantTok.token, "list").json.every((a: any) => a.owner === "agents@dev.test"));
+check("tenant can't open Nate's page", tack(tenantTok.token, "get", id).code === 5);
+check("tenant's list holds only its own", tack(tenantTok.token, "list").json.every((a: any) => a.owner === "agents@dev.test"));
 check("admin can share the tenant's page", (await api(nate, `/artifacts/${tpub.json.id}/sharing`, { method: "PUT", body: JSON.stringify({ mode: "users", users: "client@acme.example" }) })).status === 200);
-lshare(tok.token, "share", id, "--mode", "org");
-check("an org page stays closed to the tenant", lshare(tenantTok.token, "get", id).code === 5);
+tack(tok.token, "share", id, "--mode", "org");
+check("an org page stays closed to the tenant", tack(tenantTok.token, "get", id).code === 5);
 check("…and open to JJ", (await api(jj, `/artifacts/${id}`)).status === 200);
 
 // Delete
-check("delete needs --yes", lshare(tok.token, "delete", id).code === 2);
-check("owner deletes", lshare(tok.token, "delete", id, "--yes").code === 0);
+check("delete needs --yes", tack(tok.token, "delete", id).code === 2);
+check("owner deletes", tack(tok.token, "delete", id, "--yes").code === 0);
 check("deleted artifact is gone", (await api(nate, `/artifacts/${id}`)).status === 404);
 
 console.log(failed ? `\n${failed} failed` : "\nall checks passed");

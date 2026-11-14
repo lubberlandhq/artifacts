@@ -1,31 +1,31 @@
 ---
-name: share
-description: Publish an HTML page to an artifacts server with lshare and share it, a self-hosted Claude-Artifacts-style host. Use when the person asks for a share link or says /share or lshare, when a page (report, mockup, dashboard) must reach someone outside this session, or to update, re-share, list or read comments on an existing share.
+name: tack
+description: Publish an HTML page to an artifacts server with tack and share it, a self-hosted Claude-Artifacts-style host. Use when the person asks for a share link or says /tack or /share, when a page (report, mockup, dashboard) must reach someone outside this session, or to update, re-share, list or read comments on an existing share.
 ---
 
-# /share: pages on an artifacts server
+# /tack: pages on an artifacts server
 
-`lshare` publishes a self-contained HTML page (or a folder with `index.html`) and prints a link.
+`tack` publishes a self-contained HTML page (or a folder with `index.html`) and prints a link.
 Republishing keeps the link. Who can open it is set per page.
 
 ## Run it
 
-`lshare` needs two environment variables: `LSHARE_URL` (the server, e.g.
-`https://share.example.com`) and `LSHARE_TOKEN` (a token from the server's gallery page, "Tokens
+`tack` needs two environment variables: `TACK_URL` (the server, e.g.
+`https://share.example.com`) and `TACK_TOKEN` (a token from the server's gallery page, "Tokens
 for the CLI and agents"). If your environment's instructions (AGENTS.md, CLAUDE.md) give a command
-that supplies them, such as a secrets wrapper, use that command wherever this skill says `lshare`.
+that supplies them, such as a secrets wrapper, use that command wherever this skill says `tack`.
 Never put the token on the command line or in a file.
 
-Piped output is JSON; exit 2 = usage (including a missing `LSHARE_URL`), 4 = auth, 5 = API.
-`lshare --help` has every flag. On exit 4 the token is missing or revoked: tell the person, who
+Piped output is JSON; exit 2 = usage (including a missing `TACK_URL`), 4 = auth, 5 = API.
+`tack --help` has every flag. On exit 4 the token is missing or revoked: tell the person, who
 mints a new one on the gallery page.
 
 ## Publish
 
 1. Write the page to the contract below.
-2. `lshare publish page.html --title "…"`, or `lshare publish ./dir --title "…"` for several files.
+2. `tack publish page.html --title "…"`, or `tack publish ./dir --title "…"` for several files.
    A new page starts **private**: only its owner (and editors) can open it.
-3. To update it: `lshare publish page.html --id <id> --label "what changed"`. Same link, new version.
+3. To update it: `tack publish page.html --id <id> --label "what changed"`. Same link, new version.
    Files left out of a folder publish are kept; `--remove path` drops one.
 4. Give the person the link from the output, with who can currently see it.
 
@@ -35,7 +35,7 @@ what the person asked for.
 ## Share
 
 ```sh
-lshare share <id> --mode private|people|org|public [--users a@x,b@y] [--editors c@z] [--pin live|current|N]
+tack share <id> --mode private|people|org|public [--users a@x,b@y] [--editors c@z] [--pin live|current|N]
 ```
 
 - `people`: named emails. Each must also be allowed to sign in to the server; if someone can't,
@@ -61,6 +61,6 @@ written for one works on the other:
 
 ## Other commands
 
-`lshare list` · `lshare get <id>` (sharing details) · `lshare versions <id>` ·
-`lshare comments <id>` (viewers' feedback: read these before revising a page) ·
-`lshare rename <id> --title …` · `lshare delete <id> --yes` (permanent; only when the person asks).
+`tack list` · `tack get <id>` (sharing details) · `tack versions <id>` ·
+`tack comments <id>` (viewers' feedback: read these before revising a page) ·
+`tack rename <id> --title …` · `tack delete <id> --yes` (permanent; only when the person asks).
