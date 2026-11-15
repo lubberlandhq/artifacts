@@ -1,6 +1,6 @@
 // Server-rendered pages on the app host: the viewer shell (/a/:id), the gallery (/), and the
 // sign-in screens. Every page carries a per-response nonce CSP; scripts only call /api.
-import { canAdmin, canWrite, describeMode, isAdmin, orgPolicy } from "./authz";
+import { canAdmin, canPublish, canWrite, describeMode, isAdmin, orgPolicy } from "./authz";
 import { contentOrigin } from "./content";
 import { shellCsp } from "./csp";
 import { randomToken } from "./crypto";
@@ -10,22 +10,29 @@ export const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 const STYLE = `
-:root{--bg:#f7f6f3;--panel:#fff;--ink:#1d1c1a;--muted:#6b6862;--line:#e3e0da;--accent:#2f5d50;--accent-ink:#fff;--warn:#9a3b1c;--chip:#efece6;--shadow:0 8px 30px rgba(0,0,0,.12)}
-@media (prefers-color-scheme:dark){:root{--bg:#161615;--panel:#1f1f1d;--ink:#ecebe8;--muted:#a19d95;--line:#33322f;--accent:#7fbfa9;--accent-ink:#10201b;--warn:#f0936f;--chip:#2a2927;--shadow:0 8px 30px rgba(0,0,0,.5)}}
+:root{--bg:#f5f5f4;--panel:#fff;--ink:#18181b;--muted:#63636b;--line:#e1e1e3;--accent:#18181b;--accent-ink:#fff;--pin:#d93025;--warn:#b3261e;--chip:#ececee;--shadow:0 8px 30px rgba(0,0,0,.12)}
+@media (prefers-color-scheme:dark){:root{--bg:#111112;--panel:#1a1a1c;--ink:#ededee;--muted:#a0a0a8;--line:#2e2e31;--accent:#ededee;--accent-ink:#111112;--pin:#ff6b5e;--warn:#ff8f80;--chip:#262629;--shadow:0 8px 30px rgba(0,0,0,.5)}}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
 a{color:var(--accent)}button,input,textarea,select{font:inherit;color:inherit}
-button{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 12px}
+button{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 12px;font-weight:500;transition:background-color .12s ease-out,border-color .12s ease-out}
+a>button{color:var(--ink)}
+button:hover:not(:disabled){background:var(--chip)}
 button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.primary:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 82%,var(--panel));border-color:color-mix(in srgb,var(--accent) 82%,var(--panel))}
 button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 input[type=text],input[type=email],textarea{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px}
 .muted{color:var(--muted)}.chip{background:var(--chip);border-radius:999px;padding:2px 9px;font-size:12px;white-space:nowrap}
-.bar{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel);min-height:52px}
-.bar .title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.bar .grow{flex:1;min-width:0;display:flex;flex-direction:column}
-.bar .sub{font-size:12px}
-.brand{font-weight:700;text-decoration:none;color:var(--ink);letter-spacing:-.01em;display:inline-flex;align-items:center;gap:7px}
-.brand svg{width:20px;height:20px;flex:none}.mk-s{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.mk-a{fill:var(--accent)}
+.bar{display:flex;align-items:center;gap:12px;padding:8px 20px;border-bottom:1px solid var(--line);background:var(--panel);min-height:56px}
+.bar .title{font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.bar .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.bar .sub{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.bar .sub .chip{font-size:11px;padding:1px 8px}
+.bar .vr{flex:none;width:1px;height:24px;background:var(--line);margin:0 4px}
+aside .bar{padding:8px 12px;min-height:48px}
+.brand{font-size:15px;font-weight:700;text-decoration:none;color:var(--ink);letter-spacing:-.01em;display:inline-flex;align-items:center;gap:8px}
+.brand svg{width:22px;height:22px;flex:none}.mk-s{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.mk-a{fill:var(--pin)}
 .dialog{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:flex-start;justify-content:center;padding:60px 16px;z-index:10}
 .dialog.open{display:flex}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);width:100%;max-width:480px;padding:20px}
@@ -36,16 +43,28 @@ input[type=text],input[type=email],textarea{width:100%;border:1px solid var(--li
 .field{margin:12px 0}.field>label:not(.opt){display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
 .err{color:var(--warn);font-size:13px;min-height:1em}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;display:none;z-index:20}
-@media (max-width:640px){.hide-sm{display:none}.bar{flex-wrap:wrap;gap:6px;padding:8px 12px}.bar .grow{flex-basis:100%}.bar button{padding:5px 10px;font-size:13px}}
+[hidden]{display:none!important}
+button.sm{padding:3px 9px;font-size:12px}
+button.danger{background:var(--warn);color:var(--panel);border-color:var(--warn)}
+button.danger:hover:not(:disabled){background:color-mix(in srgb,var(--warn) 88%,var(--ink));border-color:color-mix(in srgb,var(--warn) 88%,var(--ink))}
+.acard{position:relative;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;transition:border-color .12s ease-out}
+.acard:hover{border-color:color-mix(in srgb,var(--line) 55%,var(--ink))}
+.amain{flex:1;min-width:0;text-decoration:none;color:inherit}.amain::after{content:"";position:absolute;inset:0;border-radius:10px}
+.atitle{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aact{position:relative;z-index:1;display:flex;gap:6px}
+.trow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+@media (max-width:640px){.hide-sm{display:none}.bar{flex-wrap:wrap;gap:6px;padding:8px 12px}.bar .grow:has(.title){flex-basis:100%}.bar button{padding:5px 10px;font-size:13px}input[type=text],input[type=email],textarea{font-size:16px}.trow{grid-template-columns:minmax(0,1fr) auto}.trow>span{grid-row:2}.trow>button{grid-column:2;grid-row:1/3}.aact{flex-basis:100%}}
 `;
 
 // The Tack mark: a plain sheet hanging at a tilt from one tack. The pin sits inside the sheet, not on
 // its top edge, and there are no text lines, so it doesn't read as a clipboard at small sizes. Drawn on a 24px grid so it reads at favicon size.
 const MARK_SHAPES = `<rect class="mk-s" x="5" y="3.5" width="14" height="17.5" rx="1.8" transform="rotate(9 12 8)"/><circle class="mk-a" cx="12" cy="8" r="2.9"/>`;
 const MARK = `<svg viewBox="0 0 24 24" aria-hidden="true">${MARK_SHAPES}</svg>`;
+// Pages with no chrome of their own (messages, sign-in) still say whose they are and lead home.
+const TOPBAR = `<div class="bar"><a class="brand" href="/">${MARK}tack</a></div>`;
 // The favicon can't see the page's tokens, so it carries both palettes itself.
 const FAVICON = `data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><style>.mk-s{fill:none;stroke:#1d1c1a;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.mk-a{fill:#2f5d50}@media (prefers-color-scheme:dark){.mk-s{stroke:#ecebe8}.mk-a{fill:#7fbfa9}}</style>${MARK_SHAPES}</svg>`,
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><style>.mk-s{fill:none;stroke:#18181b;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.mk-a{fill:#d93025}@media (prefers-color-scheme:dark){.mk-s{stroke:#ededee}.mk-a{fill:#ff6b5e}}</style>${MARK_SHAPES}</svg>`,
 )}`;
 
 function page(env: Env, opts: { title: string; body: string; script?: string; frameOrigin?: string | null }) {
@@ -71,7 +90,7 @@ ${opts.script ? `<script nonce="${nonce}">${opts.script}</script>` : ""}</body><
 // Shared client helpers: api() sends JSON with the same-origin Origin header browsers add anyway.
 const CLIENT = `
 const $=(s,r=document)=>r.querySelector(s);
-async function api(path,opts={}){const r=await fetch('/api'+path,{credentials:'same-origin',...opts,headers:{...(opts.body&&!(opts.body instanceof FormData)?{'Content-Type':'application/json'}:{}),...(opts.headers||{})}});const t=await r.text();let j;try{j=JSON.parse(t)}catch{j={error:t}}if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j}
+async function api(path,opts={}){const r=await fetch('/api'+path,{credentials:'same-origin',...opts,headers:{...(opts.body&&!(opts.body instanceof FormData)?{'Content-Type':'application/json'}:{}),...(opts.headers||{})}});const t=await r.text();let j;try{j=JSON.parse(t)}catch{j={error:t}}if(!r.ok)throw Object.assign(new Error(j.error||('HTTP '+r.status)),{status:r.status});return j}
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',2200)}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 `;
@@ -84,7 +103,7 @@ export function viewerPage(env: Env, a: Artifact, email: string | null, version:
   const body = `
 <div style="display:flex;flex-direction:column;height:100%">
   <div class="bar">
-    <a class="brand hide-sm" href="/">${MARK}tack</a>
+    <a class="brand hide-sm" href="/">${MARK}tack</a><span class="vr hide-sm" aria-hidden="true"></span>
     <div class="grow"><span class="title">${esc(a.title)}</span>
       <span class="sub muted">${esc(a.owner)} · <span id="ver">v${version}</span>${editor ? ` · <span class="chip">${esc(describeMode(a.read_mode, env.ORG_NAME))}</span>` : ""}</span></div>
     <button id="commentsBtn" title="Comments">Comments</button>
@@ -100,7 +119,7 @@ export function viewerPage(env: Env, a: Artifact, email: string | null, version:
       <div class="bar"><b class="grow">Comments</b><button id="closeComments">×</button></div>
       <div id="clist" style="flex:1;overflow:auto;padding:12px"></div>
       <form id="cform" style="padding:12px;border-top:1px solid var(--line);display:${email ? "block" : "none"}">
-        <textarea id="cbody" rows="3" placeholder="Add a comment"></textarea>
+        <textarea id="cbody" rows="3" aria-label="Add a comment" placeholder="Add a comment"></textarea>
         <div class="row end" style="margin-top:6px"><button class="primary">Post</button></div>
       </form>
       ${email ? "" : `<p class="muted" style="padding:12px">Sign in to comment.</p>`}
@@ -116,9 +135,10 @@ const link=location.origin+'/a/'+B.id;
 async function copy(){await navigator.clipboard.writeText(link);toast('Link copied')}
 $('#copyBtn')?.addEventListener('click',copy);
 
-// Live updates: viewers following live see a new publish within ~15s, as on claude.ai.
+// Live updates: viewers following live see a new publish within ~15s, as on claude.ai. If the artifact is
+// deleted or unshared, the same poll gets 401/404 and reloads, so the open tab stops showing it.
 let shown=B.version;
-setInterval(async()=>{if(document.hidden)return;try{const h=await api('/artifacts/'+B.id+'/head');if(h.version!==shown){const f=await api('/artifacts/'+B.id+'/frame');shown=f.version;$('#frame').src=f.src;$('#full').href=f.src;$('#ver').textContent='v'+f.version;toast('Updated to v'+f.version)}}catch{}},15000);
+setInterval(async()=>{if(document.hidden)return;try{const h=await api('/artifacts/'+B.id+'/head');if(h.version!==shown){const f=await api('/artifacts/'+B.id+'/frame');shown=f.version;$('#frame').src=f.src;$('#full').href=f.src;$('#ver').textContent='v'+f.version;toast('Updated to v'+f.version)}}catch(x){if(x.status===401||x.status===404)location.reload()}},15000);
 
 // Comments
 async function loadComments(){const {comments}=await api('/artifacts/'+B.id+'/comments');$('#clist').innerHTML=comments.length?comments.map(c=>'<div style="margin-bottom:12px;'+(c.resolved?'opacity:.5':'')+'"><div class="muted" style="font-size:12px">'+esc(c.author)+' · v'+c.ver+' · '+new Date(c.created_at).toLocaleString()+'</div><div style="white-space:pre-wrap">'+esc(c.body)+'</div>'+(B.editor&&!c.resolved?'<button data-resolve="'+c.id+'" style="font-size:12px;padding:2px 8px;margin-top:4px">Resolve</button>':'')+'</div>').join(''):'<p class="muted">No comments yet.</p>'}
@@ -163,45 +183,114 @@ $('#shareSave').addEventListener('click',async()=>{const mode=document.querySele
 `;
 
 export function galleryPage(env: Env, email: string) {
-  const admin = isAdmin(orgPolicy(env), email);
+  const policy = orgPolicy(env);
+  const admin = isAdmin(policy, email);
+  // Someone who can't publish gets no publish zone and no token form: both would only answer "not a publisher".
+  const publisher = canPublish(policy, email);
   const body = `
 <div class="bar"><span class="brand">${MARK}tack</span><span class="grow"></span><span class="muted hide-sm">${esc(email)}</span><a href="/logout"><button>Sign out</button></a></div>
 <main style="max-width:960px;margin:0 auto;padding:20px 16px">
-  <section id="drop" style="border:2px dashed var(--line);border-radius:14px;padding:22px;text-align:center;background:var(--panel)">
+  ${
+    publisher
+      ? `<section id="drop" style="border:2px dashed var(--line);border-radius:14px;padding:22px;text-align:center;background:var(--panel)">
     <b>Publish a page</b>
     <p class="muted" style="margin:6px 0 12px">Drop an .html file or a folder with an index.html. It starts private.</p>
     <div class="row" style="justify-content:center;flex-wrap:wrap">
-      <input id="ptitle" type="text" placeholder="Title" style="max-width:280px">
+      <input id="ptitle" type="text" aria-label="Title" placeholder="Title" style="max-width:280px">
       <label><button type="button" id="pickFile">Choose file</button><input id="file" type="file" accept=".html,.htm" hidden></label>
       <label><button type="button" id="pickDir">Choose folder</button><input id="dir" type="file" webkitdirectory hidden></label>
     </div>
     <div class="err" id="pubErr"></div>
-  </section>
-  <h3 style="margin:24px 0 8px">Yours and shared with you</h3>
+  </section>`
+      : ""
+  }
+  <h2 style="margin:${publisher ? 24 : 4}px 0 8px;font-size:1.17em">Yours and shared with you</h2>
   <div id="list" class="muted">Loading…</div>
-  <h3 style="margin:28px 0 8px">Tokens for the CLI and agents</h3>
-  <p class="muted" style="margin-top:0">For <code>tack</code> on the mini or the laptop. A token publishes as you.</p>
-  <div class="row" style="max-width:640px;flex-wrap:wrap"><input id="tlabel" type="text" placeholder="label, e.g. agents" style="max-width:240px">${
-    admin ? `<input id="tas" type="email" placeholder="publish as (blank = you)" style="max-width:280px">` : ""
-  }<button id="tnew">Create</button></div>
-  <pre id="tshow" style="display:none;background:var(--chip);padding:10px;border-radius:8px;overflow:auto"></pre>
-  <div id="tlist" class="muted" style="margin-top:8px"></div>
+  <section id="tsec"${publisher ? "" : " hidden"}>
+    <h2 style="margin:28px 0 8px;font-size:1.17em">Tokens for the CLI and agents</h2>
+    ${
+      publisher
+        ? `<p class="muted" style="margin-top:0">For <code>tack</code> on the mini or the laptop. A token publishes as you.</p>
+    <div class="row" style="max-width:640px;flex-wrap:wrap"><input id="tlabel" type="text" aria-label="Token label" placeholder="label, e.g. agents" style="max-width:240px">${
+      admin ? `<input id="tas" type="email" aria-label="Publish as" placeholder="publish as (blank = you)" style="max-width:280px">` : ""
+    }<button id="tnew">Create</button></div>
+    <div id="tnewbox" hidden><pre id="tshow" style="background:var(--chip);padding:10px;border-radius:8px;overflow:auto;margin-bottom:8px"></pre><button id="tcopy">Copy token</button></div>`
+        : ""
+    }
+    <div id="tlist" class="muted" style="margin-top:12px"></div>
+    <div id="tmore" style="margin-top:8px"></div>
+  </section>
 </main>
+<div id="ask" class="dialog" role="dialog" aria-modal="true" aria-labelledby="askTitle"><div class="card">
+  <h2 id="askTitle"></h2>
+  <p class="muted" id="askBody" style="margin:0 0 12px"></p>
+  <div class="field" id="askField" hidden><label for="askInput">Title</label><input id="askInput" type="text" maxlength="200"></div>
+  <div class="row end"><button id="askNo">Cancel</button><button id="askYes" class="primary"></button></div>
+</div></div>
 <div id="toast" class="toast"></div>`;
 
   const script = `${CLIENT}
 const ME=${JSON.stringify(email).replace(/</g, "\\u003c")};
+const PUB=${publisher};
 const MODES={owner:'Only you',users:'Specific people',org:${JSON.stringify(env.ORG_NAME).replace(/</g, "\\u003c")},public:'Anyone with the link'};
-async function load(){const {artifacts}=await api('/artifacts');$('#list').classList.remove('muted');$('#list').innerHTML=artifacts.length?'<div style="display:grid;gap:8px">'+artifacts.map(a=>'<a href="/a/'+a.id+'" style="text-decoration:none;color:inherit"><div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;gap:10px;align-items:center"><div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.title)+'</div><div class="muted" style="font-size:12px">'+(a.role==='owner'?'':esc(a.owner)+' · ')+'v'+a.live_version+' · '+new Date(a.updated_at).toLocaleString()+'</div></div>'+(a.sharing?'<span class="chip">'+MODES[a.sharing.mode]+'</span>':'<span class="chip">'+a.role+'</span>')+'</div></a>').join('')+'</div>':'<p>Nothing yet.</p>'}
-async function publish(files){$('#pubErr').textContent='';const fd=new FormData();let strip='';if(files.length&&files[0].webkitRelativePath){strip=files[0].webkitRelativePath.split('/')[0]+'/'}for(const f of files){const p=(f.webkitRelativePath||f.name).slice(strip.length&&(f.webkitRelativePath||'').startsWith(strip)?strip.length:0);if(p.split('/').some(s=>s.startsWith('.')))continue;fd.append('file',f,files.length===1&&!f.webkitRelativePath?'index.html':p)}const title=$('#ptitle').value.trim()||(files.length===1?files[0].name.replace(/\\.html?$/,''):strip.replace(/\\/$/,''))||'Untitled';fd.append('title',title);try{const a=await api('/artifacts',{method:'POST',body:fd});location.href='/a/'+a.id}catch(x){$('#pubErr').textContent=x.message}}
-$('#pickFile').addEventListener('click',()=>$('#file').click());$('#pickDir').addEventListener('click',()=>$('#dir').click());
-$('#file').addEventListener('change',e=>publish([...e.target.files]));$('#dir').addEventListener('change',e=>publish([...e.target.files]));
-const drop=$('#drop');drop.addEventListener('dragover',e=>{e.preventDefault();drop.style.borderColor='var(--accent)'});drop.addEventListener('dragleave',()=>drop.style.borderColor='');
-drop.addEventListener('drop',e=>{e.preventDefault();drop.style.borderColor='';const fs=[...e.dataTransfer.files].filter(f=>/\\.html?$/i.test(f.name));if(fs.length!==1){$('#pubErr').textContent='Drop one .html file, or use Choose folder for a multi-file page.';return}publish(fs)});
-async function tokens(){const {tokens}=await api('/tokens');$('#tlist').innerHTML=tokens.map(t=>'<div class="row" style="padding:4px 0"><code>'+t.id+'</code><span style="flex:1">'+esc(t.label)+(t.owner!==ME?' <span class="chip">as '+esc(t.owner)+'</span>':'')+(t.scope?' <span class="chip">'+esc(t.scope)+' only</span>':'')+' <span class="muted">· last used '+(t.last_used?new Date(t.last_used).toLocaleString():'never')+(t.expires_at?' · expires '+new Date(t.expires_at).toLocaleDateString():'')+'</span></span><button data-revoke="'+t.id+'">Revoke</button></div>').join('')}
-$('#tnew').addEventListener('click',async()=>{try{const r=await api('/tokens',{method:'POST',body:JSON.stringify({label:$('#tlabel').value,as:($('#tas')?.value||'').trim()||undefined})});$('#tshow').style.display='block';$('#tshow').textContent='Shown once. Store it in 1Password, then set TACK_TOKEN:\\n'+r.token;tokens()}catch(x){toast(x.message)}});
-$('#tlist').addEventListener('click',async e=>{const id=e.target.dataset?.revoke;if(!id)return;await api('/tokens/'+id,{method:'DELETE'});tokens()});
-load();tokens();`;
+const ROLES={viewer:'Shared with you'};
+const when=d=>new Date(d).toLocaleString([],{dateStyle:'medium',timeStyle:'short'});
+const day=d=>new Date(d).toLocaleDateString([],{dateStyle:'medium'});
+
+// One dialog for confirming and for renaming. Resolves true (or the typed text), or null on cancel.
+function ask(o){return new Promise(res=>{
+  const d=$('#ask'),y=$('#askYes'),n=$('#askNo'),i=$('#askInput'),text=o.input!==undefined,prev=document.activeElement;
+  $('#askTitle').textContent=o.title;$('#askBody').textContent=o.body||'';$('#askBody').hidden=!o.body;
+  y.textContent=o.yes;y.className=o.danger?'danger':'primary';$('#askField').hidden=!text;i.value=o.input||'';
+  d.classList.add('open');if(text){i.focus();i.select()}else n.focus();
+  const done=v=>{d.classList.remove('open');d.onclick=d.onkeydown=y.onclick=n.onclick=null;prev&&prev.focus&&prev.focus();res(v)};
+  y.onclick=()=>done(text?i.value.trim():true);n.onclick=()=>done(null);
+  d.onclick=e=>{if(e.target===d)done(null)};
+  d.onkeydown=e=>{if(e.key==='Escape')done(null);else if(e.key==='Enter'&&text){e.preventDefault();y.click()}};
+})}
+
+// Artifacts
+let ARTS=[];
+const card=a=>'<div class="acard"><a class="amain" href="/a/'+a.id+'"><div class="atitle">'+esc(a.title)+'</div><div class="muted" style="font-size:12px">'+(a.role==='owner'?'':esc(a.owner)+' · ')+'v'+a.live_version+' · '+when(a.updated_at)+'</div></a><span class="chip">'+(a.sharing?MODES[a.sharing.mode]:ROLES[a.role]||a.role)+'</span>'+(a.role==='owner'?'<span class="aact"><button class="sm" data-rename="'+a.id+'">Rename</button><button class="sm" data-delete="'+a.id+'">Delete</button></span>':'')+'</div>';
+async function load(){ARTS=(await api('/artifacts')).artifacts;$('#list').classList.remove('muted');$('#list').innerHTML=ARTS.length?'<div style="display:grid;grid-template-columns:minmax(0,1fr);gap:8px">'+ARTS.map(card).join('')+'</div>':'<p>Nothing yet.</p>'}
+$('#list').addEventListener('click',async e=>{
+  const rid=e.target.dataset?.rename,did=e.target.dataset?.delete,a=ARTS.find(x=>x.id===(rid||did));if(!a)return;
+  try{
+    if(rid){const t=await ask({title:'Rename',yes:'Save',input:a.title});if(!t||t===a.title)return;await api('/artifacts/'+a.id,{method:'PATCH',body:JSON.stringify({title:t})});await load();toast('Renamed')}
+    else{if(!await ask({title:'Delete “'+a.title+'”?',body:'The page, its versions and its comments are removed, and its link stops working. This can’t be undone.',yes:'Delete',danger:true}))return;await api('/artifacts/'+a.id,{method:'DELETE'});await load();toast('Deleted')}
+  }catch(x){toast(x.message)}
+});
+
+// Publish. entries: [[path inside the page, File]]; name: the title when the Title box is empty.
+async function publish(entries,name){if(publish.busy)return;$('#pubErr').textContent='';const fd=new FormData();for(const [p,f] of entries){if(p.split('/').some(s=>s.startsWith('.')))continue;fd.append('file',f,p)}fd.append('title',$('#ptitle').value.trim()||name||'Untitled');const btns=[$('#pickFile'),$('#pickDir')];publish.busy=true;btns.forEach(b=>b.disabled=true);try{const a=await api('/artifacts',{method:'POST',body:fd});location.href='/a/'+a.id}catch(x){publish.busy=false;btns.forEach(b=>b.disabled=false);$('#pubErr').textContent=x.message}}
+const publishFile=f=>publish([['index.html',f]],f.name.replace(/\\.html?$/i,''));
+const publishPicked=fs=>{const root=fs.length?fs[0].webkitRelativePath.split('/')[0]:'';return publish(fs.map(f=>[f.webkitRelativePath.slice(root.length+1),f]),root)};
+// A dropped folder arrives as a directory entry, not as files: read it out, keeping paths relative to the folder.
+const children=async d=>{const r=d.createReader(),all=[];for(;;){const b=await new Promise((ok,no)=>r.readEntries(ok,no));if(!b.length)return all;all.push(...b)}};
+async function walk(d,prefix,out){for(const e of await children(d)){if(e.isDirectory)await walk(e,prefix+e.name+'/',out);else out.push([prefix+e.name,await new Promise((ok,no)=>e.file(ok,no))])}return out}
+if(PUB){
+  $('#pickFile').addEventListener('click',()=>$('#file').click());$('#pickDir').addEventListener('click',()=>$('#dir').click());
+  $('#file').addEventListener('change',e=>e.target.files.length&&publishFile(e.target.files[0]));$('#dir').addEventListener('change',e=>publishPicked([...e.target.files]));
+  const drop=$('#drop');drop.addEventListener('dragover',e=>{e.preventDefault();drop.style.borderColor='var(--accent)'});drop.addEventListener('dragleave',()=>drop.style.borderColor='');
+  drop.addEventListener('drop',async e=>{e.preventDefault();drop.style.borderColor='';
+    const ents=[...(e.dataTransfer.items||[])].map(i=>i.webkitGetAsEntry&&i.webkitGetAsEntry()).filter(Boolean);
+    if(ents.length===1&&ents[0].isDirectory){try{await publish(await walk(ents[0],'',[]),ents[0].name)}catch(x){$('#pubErr').textContent=x.message}return}
+    const fs=[...e.dataTransfer.files].filter(f=>/\\.html?$/i.test(f.name));
+    if(ents.length>1||fs.length!==1){$('#pubErr').textContent='Drop one .html file or one folder.';return}
+    publishFile(fs[0])});
+}
+
+// Tokens: the newest few, the rest behind "Show all".
+let TOKS=[],allToks=false;const FEW=8;
+const trow=t=>'<div class="trow"><code>'+t.id+'</code><span>'+esc(t.label)+(t.owner!==ME?' <span class="chip">as '+esc(t.owner)+'</span>':'')+(t.scope?' <span class="chip">'+esc(t.scope)+' only</span>':'')+' <span class="muted">· last used '+(t.last_used?when(t.last_used):'never')+(t.expires_at?' · expires '+day(t.expires_at):'')+'</span></span><button data-revoke="'+t.id+'">Revoke</button></div>';
+function showTokens(){$('#tsec').hidden=!PUB&&!TOKS.length;$('#tlist').classList.remove('muted');$('#tlist').innerHTML=(allToks?TOKS:TOKS.slice(0,FEW)).map(trow).join('');$('#tmore').innerHTML=!allToks&&TOKS.length>FEW?'<button id="tall">Show all '+TOKS.length+'</button>':''}
+async function tokens(){TOKS=(await api('/tokens')).tokens;showTokens()}
+$('#tmore').addEventListener('click',e=>{if(e.target.id==='tall'){allToks=true;showTokens()}});
+let NEWTOK='';
+$('#tnew')?.addEventListener('click',async()=>{try{const r=await api('/tokens',{method:'POST',body:JSON.stringify({label:$('#tlabel').value,as:($('#tas')?.value||'').trim()||undefined})});NEWTOK=r.token;$('#tnewbox').hidden=false;$('#tshow').textContent='Shown once. Store it in 1Password, then set TACK_TOKEN:\\n'+r.token;$('#tlabel').value='';await tokens()}catch(x){toast(x.message)}});
+$('#tcopy')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(NEWTOK);toast('Token copied')}catch(x){toast(x.message)}});
+$('#tlist').addEventListener('click',async e=>{const id=e.target.dataset?.revoke,t=TOKS.find(x=>x.id===id);if(!t)return;if(!await ask({title:'Revoke “'+t.label+'”?',body:'Anything using this token stops working right away.',yes:'Revoke',danger:true}))return;try{await api('/tokens/'+id,{method:'DELETE'});await tokens();toast('Revoked')}catch(x){toast(x.message)}});
+load().catch(x=>{$('#list').textContent=x.message});tokens().catch(x=>{$('#tsec').hidden=false;$('#tlist').textContent=x.message});`;
 
   return page(env, { title: "Tack", body, script });
 }
@@ -209,7 +298,7 @@ load();tokens();`;
 export function messagePage(env: Env, title: string, message: string, action?: { href: string; label: string }) {
   return page(env, {
     title,
-    body: `<main style="max-width:480px;margin:80px auto;padding:0 16px"><h2>${esc(title)}</h2><p class="muted">${esc(message)}</p>${
+    body: `${TOPBAR}<main style="max-width:480px;margin:64px auto;padding:0 16px"><h2>${esc(title)}</h2><p class="muted">${esc(message)}</p>${
       action ? `<a href="${esc(action.href)}"><button class="primary">${esc(action.label)}</button></a>` : ""
     }</main>`,
   });
@@ -219,7 +308,7 @@ export function messagePage(env: Env, title: string, message: string, action?: {
 export function devLoginPage(env: Env, next: string) {
   return page(env, {
     title: "Dev sign-in",
-    body: `<main style="max-width:420px;margin:80px auto;padding:0 16px"><h2>Dev sign-in</h2>
+    body: `${TOPBAR}<main style="max-width:420px;margin:64px auto;padding:0 16px"><h2>Dev sign-in</h2>
 <p class="muted">wrangler dev only. Production signs in through Cloudflare Access.</p>
 <form method="post" action="/login/dev"><input type="hidden" name="next" value="${esc(next)}">
 <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" required></div>
@@ -243,7 +332,7 @@ export function devicePage(env: Env, email: string, userCode: string | null) {
 <form method="get" action="/device"><div class="field"><label for="user_code">Code</label>
 <input id="user_code" name="user_code" type="text" autocomplete="off" autocapitalize="characters" required></div>
 <button class="primary">Continue</button></form>`;
-  const r = page(env, { title: "Sign in to Whiteboard", body: `<main style="max-width:440px;margin:80px auto;padding:0 16px">${main}</main>` });
+  const r = page(env, { title: "Sign in to Whiteboard", body: `${TOPBAR}<main style="max-width:440px;margin:64px auto;padding:0 16px">${main}</main>` });
   // The Approve form is a plain post, and under no-referrer a browser sends it with
   // `Origin: null`, which the same-site check on POST /device refuses. same-origin keeps the
   // real origin on this site's own posts and still tells other sites nothing.
@@ -262,7 +351,7 @@ export function sharedBoardPage(
   const body = `
 <div style="display:flex;flex-direction:column;height:100%">
   <div class="bar">
-    <span class="brand hide-sm">${MARK}tack</span>
+    <span class="brand hide-sm">${MARK}tack</span><span class="vr hide-sm" aria-hidden="true"></span>
     <div class="grow"><span class="title">${esc(title)}</span>
       <span class="sub muted">Shared by ${esc(b.sender)} · version ${b.version} · ${new Date(b.sharedAt).toISOString().slice(0, 10)}</span></div>
     ${open}

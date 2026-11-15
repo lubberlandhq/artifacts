@@ -119,7 +119,7 @@ async function appHost(req: Request, env: Env, url: URL): Promise<Response> {
       label: "Switch account",
     });
   }
-  return messagePage(env, "Not found", "Nothing lives at this address.");
+  return withStatus(messagePage(env, "Not found", "Nothing lives at this address.", { href: "/", label: "Back to Tack" }), 404);
 }
 
 export default {
