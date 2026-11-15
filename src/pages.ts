@@ -10,8 +10,8 @@ export const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 const STYLE = `
-:root{color-scheme:light dark;--bg:#f5f5f4;--panel:#fff;--ink:#18181b;--muted:#63636b;--line:#e1e1e3;--accent:#18181b;--accent-ink:#fff;--pin:#d93025;--warn:#b3261e;--danger:#b3261e;--chip:#ececee;--scrim:rgba(0,0,0,.45);--shadow:0 12px 40px rgba(0,0,0,.16);--edge:color-mix(in srgb,var(--line) 62%,var(--muted));--hover:color-mix(in srgb,var(--chip) 50%,var(--panel))}
-@media (prefers-color-scheme:dark){:root{--bg:#0e0e0f;--panel:#19191b;--ink:#ededee;--muted:#a0a0a8;--line:#2d2d31;--accent:#ededee;--accent-ink:#111112;--pin:#ff6b5e;--warn:#ff8f80;--danger:#d93025;--chip:#2c2c30;--scrim:rgba(0,0,0,.65);--shadow:0 12px 40px rgba(0,0,0,.6)}}
+:root{color-scheme:light dark;--bg:#f5f5f4;--panel:#fff;--ink:#18181b;--muted:#63636b;--line:#e1e1e3;--accent:#18181b;--accent-ink:#fff;--pin:#d93025;--warn:#b3261e;--danger:#b3261e;--chip:#ececee;--scrim:rgba(0,0,0,.45);--shadow:0 12px 40px rgba(0,0,0,.16);--edge:color-mix(in srgb,var(--line) 62%,var(--muted));--field:color-mix(in srgb,var(--line) 30%,var(--muted));--hover:color-mix(in srgb,var(--chip) 50%,var(--panel))}
+@media (prefers-color-scheme:dark){:root{--bg:#0e0e0f;--panel:#1b1b1e;--ink:#ededee;--muted:#a0a0a8;--line:#303035;--accent:#ededee;--accent-ink:#111112;--pin:#ff6b5e;--warn:#ff8f80;--danger:#c9302c;--chip:#2e2e33;--scrim:rgba(0,0,0,.65);--shadow:0 12px 40px rgba(0,0,0,.6)}}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;accent-color:var(--accent);-webkit-font-smoothing:antialiased}
 ::selection{background:color-mix(in srgb,var(--ink) 16%,transparent)}
@@ -20,78 +20,77 @@ h2{letter-spacing:-.01em}code{font:12.5px ui-monospace,SFMono-Regular,Menlo,mono
 button{cursor:pointer;border:1px solid var(--edge);background:var(--panel);border-radius:8px;padding:6px 12px;min-height:34px;font-weight:500;white-space:nowrap;transition:background-color .12s ease-out,border-color .12s ease-out,color .12s ease-out}
 a>button{color:var(--ink)}
 button:hover:not(:disabled){background:var(--chip)}
-button.on{background:var(--chip);border-color:var(--muted)}
-button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.on{background:var(--hover);border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
 button.primary:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 82%,var(--panel));border-color:color-mix(in srgb,var(--accent) 82%,var(--panel))}
-button.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+button.ghost{border-color:transparent;background:transparent;color:color-mix(in srgb,var(--ink) 78%,var(--panel))}
 button.ghost:hover:not(:disabled){background:var(--chip);color:var(--ink)}
 button.ghost[data-delete]:hover:not(:disabled),button.ghost[data-revoke]:hover:not(:disabled){color:var(--warn)}
 button.sm{padding:3px 9px;min-height:28px;font-size:12.5px}
 button.danger{background:var(--danger);color:#fff;border-color:var(--danger)}
 button.danger:hover:not(:disabled){background:color-mix(in srgb,var(--danger) 86%,#000);border-color:color-mix(in srgb,var(--danger) 86%,#000)}
 button:disabled{opacity:.5;cursor:default}
-:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 70%,transparent);outline-offset:2px}
-input[type=text],input[type=email],textarea{width:100%;border:1px solid var(--edge);background:var(--panel);border-radius:8px;padding:6px 10px;min-height:34px;transition:border-color .12s ease-out}
+:focus-visible{outline:2px solid color-mix(in srgb,var(--ink) 45%,transparent);outline-offset:2px}
+input[type=text],input[type=email],textarea{width:100%;border:1px solid var(--field);background:var(--panel);border-radius:8px;padding:6px 10px;min-height:34px;transition:border-color .12s ease-out}
 textarea{display:block;padding:8px 10px;resize:vertical}
-input[type=text]:hover,input[type=email]:hover,textarea:hover{border-color:var(--muted)}
-input::placeholder,textarea::placeholder{color:var(--muted);opacity:.8}
-.muted{color:var(--muted)}.chip{display:inline-block;background:var(--chip);border-radius:999px;padding:2px 9px;font-size:12px;line-height:1.45;white-space:nowrap}
+input[type=text]:hover,input[type=email]:hover,textarea:hover{border-color:var(--ink)}
+input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
+.muted{color:var(--muted)}.chip{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:1px 9px;font-size:12px;line-height:1.45;white-space:nowrap}
 .bar{display:flex;align-items:center;gap:12px;padding:8px 20px;border-bottom:1px solid var(--line);background:var(--panel);min-height:56px}
-.bar.fit{padding-inline:max(16px,calc((100% - 928px)/2))}
+.bar.fit{padding-inline:max(16px,calc((100% - 928px)/2))}.bar.fit>a:last-child>button.ghost{margin-right:-12px}
 .bar .title{font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .bar .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
 .bar .sub{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
-.bar .sub .chip{font-size:11px;padding:1px 8px}
+.bar .sub .chip{font-size:11px;padding:0 8px}
 .bar .vr{flex:none;width:1px;height:24px;background:var(--line);margin:0 4px}
 aside .bar{padding:8px 12px 8px 16px;min-height:48px}
 .brand{font-size:15px;font-weight:700;text-decoration:none;color:var(--ink);letter-spacing:-.01em;display:inline-flex;align-items:center;gap:8px}
 .brand svg{width:22px;height:22px;flex:none}.mk-s{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.mk-a{fill:var(--pin)}
-.dialog{position:fixed;inset:0;background:var(--scrim);display:none;align-items:flex-start;justify-content:center;padding:min(7vh,64px) 16px 24px;overflow:auto;z-index:10}
+.dialog{position:fixed;inset:0;background:var(--scrim);display:none;align-items:flex-start;justify-content:center;padding:24px 16px 9vh;overflow:auto;z-index:10}
 .dialog.open{display:flex}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);width:100%;max-width:480px;padding:24px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);width:100%;max-width:480px;padding:24px;margin:auto}
 .card h2{margin:0 0 12px;font-size:17px}
 .card>.row:last-child{margin-top:18px}#shareErr:empty{display:none}
-.opt{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:8px;cursor:pointer}
-.opt:hover{background:var(--hover)}.opt:has(input:checked){background:var(--chip)}.opt input{flex:none;width:15px;height:15px;margin:3px 0 0}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:7px 10px;border-radius:8px;cursor:pointer}
+.opt:hover{background:var(--hover)}.opt:has(input:checked){background:var(--hover)}.opt input{flex:none;width:15px;height:15px;margin:3px 0 0}
 .row{display:flex;gap:8px;align-items:center}.row.end{justify-content:flex-end}
-.field{margin:14px 0}.field>label:not(.opt){display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
-#share .field{border-top:1px solid var(--line);padding-top:12px}#modes,#share .field .opt{margin-inline:-10px}
+.field{margin:14px 0}.field>label:not(.opt){display:block;font-size:12px;font-weight:600;color:color-mix(in srgb,var(--ink) 78%,var(--panel));margin-bottom:6px}
+#share .field{border-top:1px solid var(--line);padding-top:12px}
 .err{color:var(--warn);font-size:13px;min-height:1em}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;box-shadow:var(--shadow);display:none;z-index:20}
 [hidden]{display:none!important}
 .sec{margin:32px 0 10px;font-size:18px;font-weight:650}
-.drop{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;border:1.5px dashed var(--edge);border-radius:12px;padding:18px 20px;background:var(--panel);transition:border-color .12s ease-out,background-color .12s ease-out}
-.drop.over{border-color:var(--accent);background:var(--hover)}
-.dtext{flex:1 1 300px;min-width:0}.dtext b{display:block;font-size:15px}.dtext p{margin:2px 0 0;font-size:13px}
-.dctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.dctl input[type=text]{width:190px}
+.drop{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;border:1px dashed var(--field);border-radius:12px;padding:18px 20px;transition:border-color .12s ease-out,background-color .12s ease-out}
+.drop.over{border-color:var(--accent);background:var(--panel)}
+.dtext{flex:1 1 300px;min-width:0}.dtext b{display:block;font-size:15px}.dtext p{margin:2px 0 0;font-size:13px;text-wrap:balance}
+.dctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.dctl input[type=text]{width:240px}
 #pubErr{flex-basis:100%}#pubErr:empty{display:none}
-.alist{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.alist{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04)}
 .acard{position:relative;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:12px 12px 12px 16px;border-top:1px solid var(--line);transition:background-color .12s ease-out}
 .acard:first-child,.trow:first-child{border-top:0}
 .acard:hover{background:var(--hover)}
 .amain{flex:1;min-width:0;text-decoration:none;color:inherit}.amain::after{content:"";position:absolute;inset:0}
 .atitle{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.atitle .chip{font-weight:400;margin-left:4px}
 .ameta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.achip{flex:none;min-width:136px}.achip.end{min-width:0}
-.aact{position:relative;z-index:1;display:flex;gap:2px}
+.achip{flex:none;min-width:136px;text-align:right}.aact{min-width:128px;justify-content:flex-end}.alist.own .achip.end{margin-right:140px}
+.aact{position:relative;z-index:1;display:flex;gap:2px}.ameta .who{color:color-mix(in srgb,var(--ink) 78%,var(--panel));font-weight:500}
 .trow{display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-top:1px solid var(--line)}
-.tmain{flex:1;min-width:0}
-.citem{padding:12px 0;border-top:1px solid var(--line)}.citem:first-child{border-top:0;padding-top:0}.citem.done{opacity:.55}
-.cmeta{font-size:12px;color:var(--muted);margin-bottom:2px}.cmeta b{color:var(--ink);font-weight:600}.cbody{white-space:pre-wrap}
-.solo{max-width:440px;margin:clamp(32px,11vh,120px) auto 32px;padding:28px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
-.solo h2{margin:0 0 8px;font-size:22px}.solo p{margin:0 0 16px}.solo .field{margin:0 0 16px}
+.tmain{flex:1;min-width:0}.trow .achip{min-width:0}.tform{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px}.tform input{flex:1 1 200px;width:auto}.tform+#tnewbox,.tform~#tlist .trow:first-child{border-top:1px solid var(--line)}#tnewbox{padding:12px 16px}.alist>.err{padding:12px 16px}
+.citem{padding:8px 8px 14px 16px;border-top:1px solid var(--line)}.citem:first-child{border-top:0}.citem.done{opacity:.55}
+.cmeta{display:flex;align-items:center;gap:8px;min-height:28px}.cmeta b{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cwhen{font-size:12px;color:var(--muted);margin:-4px 0 4px;font-variant-numeric:tabular-nums}.cbody{white-space:pre-wrap;padding-right:8px}
+.solo{max-width:440px;margin:clamp(40px,16vh,168px) auto 32px;padding:32px;box-shadow:0 1px 2px rgba(0,0,0,.04);background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.solo h2{margin:0 0 8px;font-size:22px;line-height:1.25}.solo p{margin:0 0 20px}.solo .field{margin:0 0 16px}
 .solo button{min-height:38px;padding:8px 16px}
 .solo .code{font:600 22px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em}
-#user_code{font:600 18px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em;min-height:44px}
+#user_code{font:600 20px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;text-align:center;min-height:48px}
 @media (max-width:640px){.hide-sm{display:none}
 .bar{flex-wrap:wrap;gap:8px 10px;padding:8px 14px}.bar.fit{padding-inline:14px}
-.brand.mini .wm{display:none}.bar .grow:has(.title){flex:1 1 calc(100% - 40px)}
-.bar:has(.title)>button,.bar:has(.title)>a{flex:1}.bar:has(.title)>a>button{width:100%}
+.brand.mini .wm{display:none}.bar .grow:has(.title){flex:1 1 120px}
 button{min-height:40px}button.sm{min-height:36px;padding:6px 12px;font-size:13px}
 input[type=text],input[type=email],textarea{font-size:16px;min-height:44px}
 .dctl{width:100%}.dctl input[type=text]{width:100%}.dctl label{flex:1}.dctl label button{width:100%}
-.amain{flex-basis:100%}.achip{min-width:0}.aact{margin-left:auto}
-.dialog{padding-top:24px}.solo{margin:20px 14px;padding:22px}.solo button.primary{width:100%}}
+.amain{flex-basis:100%}.achip{min-width:0;text-align:left}.aact{min-width:0;margin-left:auto}.alist.own .achip.end{margin-right:0}
+.dialog,#ask{padding-top:24px}.solo{margin:40px 20px;padding:24px}.solo button{min-height:44px}.solo button.primary{width:100%}#user_code{min-height:48px}.dctl button{min-height:44px}.acard{gap:4px 12px;padding:10px 8px 8px 16px}}
 `;
 
 // The Tack mark: a plain sheet hanging at a tilt from one tack. The pin sits inside the sheet, not on
@@ -99,7 +98,7 @@ input[type=text],input[type=email],textarea{font-size:16px;min-height:44px}
 const MARK_SHAPES = `<rect class="mk-s" x="5" y="3.5" width="14" height="17.5" rx="1.8" transform="rotate(9 12 8)"/><circle class="mk-a" cx="12" cy="8" r="2.9"/>`;
 const MARK = `<svg viewBox="0 0 24 24" aria-hidden="true">${MARK_SHAPES}</svg>`;
 // Pages with no chrome of their own (messages, sign-in) still say whose they are and lead home.
-const TOPBAR = `<div class="bar"><a class="brand" href="/">${MARK}<span class="wm">tack</span></a></div>`;
+const TOPBAR = `<div class="bar fit"><a class="brand" href="/">${MARK}<span class="wm">tack</span></a></div>`;
 // The favicon can't see the page's tokens, so it carries both palettes itself.
 const FAVICON = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><style>.mk-s{fill:none;stroke:#18181b;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.mk-a{fill:#d93025}@media (prefers-color-scheme:dark){.mk-s{stroke:#ededee}.mk-a{fill:#ff6b5e}}</style>${MARK_SHAPES}</svg>`,
@@ -144,7 +143,7 @@ export function viewerPage(env: Env, a: Artifact, email: string | null, version:
   <div class="bar">
     <a class="brand mini" href="/">${MARK}<span class="wm">tack</span></a><span class="vr hide-sm" aria-hidden="true"></span>
     <div class="grow"><span class="title">${esc(a.title)}</span>
-      <span class="sub muted">${esc(a.owner)} · <span id="ver">v${version}</span>${editor ? ` · <span class="chip">${esc(describeMode(a.read_mode, env.ORG_NAME))}</span>` : ""}</span></div>
+      <span class="sub muted"><span class="hide-sm">${esc(a.owner)} · </span><span id="ver">v${version}</span>${editor ? ` · <span class="chip">${esc(describeMode(a.read_mode, env.ORG_NAME))}</span>` : ""}</span></div>
     <button id="commentsBtn" title="Comments" aria-pressed="false">Comments</button>
     <a id="full" class="hide-sm" href="${esc(src)}" target="_blank" rel="noopener noreferrer"><button>Full page</button></a>
     ${owner ? `<button id="shareBtn" class="primary">Share</button>` : `<button id="copyBtn">Copy link</button>`}
@@ -156,7 +155,7 @@ export function viewerPage(env: Env, a: Artifact, email: string | null, version:
       allow="clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
     <aside id="comments" style="display:none;width:320px;max-width:85vw;border-left:1px solid var(--line);background:var(--panel);flex-direction:column">
       <div class="bar"><b class="grow">Comments</b><button id="closeComments" class="ghost" aria-label="Close comments">×</button></div>
-      <div id="clist" style="flex:1;overflow:auto;padding:16px"></div>
+      <div id="clist" style="flex:1;overflow:auto"></div>
       <form id="cform" style="padding:16px;border-top:1px solid var(--line);display:${email ? "block" : "none"}">
         <textarea id="cbody" rows="3" aria-label="Add a comment" placeholder="Add a comment"></textarea>
         <div class="row end" style="margin-top:8px"><button class="primary">Post</button></div>
@@ -180,7 +179,7 @@ let shown=B.version;
 setInterval(async()=>{if(document.hidden)return;try{const h=await api('/artifacts/'+B.id+'/head');if(h.version!==shown){const f=await api('/artifacts/'+B.id+'/frame');shown=f.version;$('#frame').src=f.src;$('#full').href=f.src;$('#ver').textContent='v'+f.version;toast('Updated to v'+f.version)}}catch(x){if(x.status===401||x.status===404)location.reload()}},15000);
 
 // Comments
-async function loadComments(){const {comments}=await api('/artifacts/'+B.id+'/comments');$('#clist').innerHTML=comments.length?comments.map(c=>'<div class="citem'+(c.resolved?' done':'')+'"><div class="cmeta"><b>'+esc(c.author)+'</b> · v'+c.ver+' · '+when(c.created_at)+'</div><div class="cbody">'+esc(c.body)+'</div>'+(B.editor&&!c.resolved?'<button class="sm" data-resolve="'+c.id+'" style="margin-top:6px">Resolve</button>':'')+'</div>').join(''):'<p class="muted">No comments yet.</p>'}
+async function loadComments(){const {comments}=await api('/artifacts/'+B.id+'/comments');$('#clist').innerHTML=comments.length?comments.map(c=>'<div class="citem'+(c.resolved?' done':'')+'"><div class="cmeta"><b>'+esc(c.author)+'</b>'+(B.editor&&!c.resolved?'<button class="sm ghost" data-resolve="'+c.id+'">Resolve</button>':'')+'</div><div class="cwhen">v'+c.ver+' · '+when(c.created_at)+'</div><div class="cbody">'+esc(c.body)+'</div></div>').join(''):'<p class="muted" style="margin:16px">No comments yet.</p>'}
 function showComments(open){$('#comments').style.display=open?'flex':'none';const b=$('#commentsBtn');b.classList.toggle('on',open);b.setAttribute('aria-pressed',open);if(open)loadComments()}
 $('#commentsBtn').addEventListener('click',()=>showComments($('#comments').style.display==='none'));
 $('#closeComments').addEventListener('click',()=>showComments(false));
@@ -207,7 +206,7 @@ const shareDialog = (env: Env) => `
     <label class="opt"><input type="radio" name="pin" value="current"><div><b>This version only</b><div class="muted" id="pinNote">Pin to the current version; later publishes stay private until you move the pin.</div></div></label>
   </div>
   <div class="err" id="shareErr"></div>
-  <div class="row"><button id="copyLink">Copy link</button><span style="flex:1"></span><button id="shareCancel">Cancel</button><button id="shareSave" class="primary">Save</button></div>
+  <div class="row"><button id="copyLink" class="ghost">Copy link</button><span style="flex:1"></span><button id="shareCancel">Cancel</button><button id="shareSave" class="primary">Save</button></div>
 </div></div>`;
 
 const SHARE_SCRIPT = `
@@ -229,7 +228,7 @@ export function galleryPage(env: Env, email: string) {
   const publisher = canPublish(policy, email);
   const body = `
 <div class="bar fit"><span class="brand">${MARK}<span class="wm">tack</span></span><span class="grow"></span><span class="muted hide-sm">${esc(email)}</span><a href="/logout"><button class="ghost">Sign out</button></a></div>
-<main style="max-width:960px;margin:0 auto;padding:20px 16px">
+<main style="max-width:960px;margin:0 auto;padding:20px 16px 56px">
   ${
     publisher
       ? `<section id="drop" class="drop">
@@ -246,17 +245,17 @@ export function galleryPage(env: Env, email: string) {
   <h2 class="sec"${publisher ? "" : ` style="margin-top:8px"`}>Yours and shared with you</h2>
   <div id="list" class="muted">Loading…</div>
   <section id="tsec"${publisher ? "" : " hidden"}>
-    <h2 class="sec" style="margin-top:40px">Tokens for the CLI and agents</h2>
+    <h2 class="sec" style="margin-top:44px">Tokens for the CLI and agents</h2>
     ${
       publisher
         ? `<p class="muted" style="margin:0 0 12px">For <code>tack</code> on the mini or the laptop. A token publishes as you.</p>
-    <div class="row" style="max-width:640px;flex-wrap:wrap"><input id="tlabel" type="text" aria-label="Token label" placeholder="label, e.g. agents" style="max-width:240px">${
-      admin ? `<input id="tas" type="email" aria-label="Publish as" placeholder="publish as (blank = you)" style="max-width:280px">` : ""
+    <div class="alist"><div class="tform"><input id="tlabel" type="text" aria-label="Token label" placeholder="label, e.g. agents">${
+      admin ? `<input id="tas" type="email" aria-label="Publish as" placeholder="publish as (blank = you)">` : ""
     }<button id="tnew">Create</button></div>
-    <div id="tnewbox" hidden><pre id="tshow" style="background:var(--chip);padding:10px;border-radius:8px;overflow:auto;margin-bottom:8px"></pre><button id="tcopy">Copy token</button></div>`
-        : ""
+    <div id="tnewbox" hidden><pre id="tshow" style="background:var(--chip);padding:10px;border-radius:8px;overflow:auto;margin:0 0 8px"></pre><button id="tcopy">Copy token</button></div>`
+        : `<div class="alist">`
     }
-    <div id="tlist" style="margin-top:14px"></div>
+    <div id="tlist"></div></div>
     <div id="tmore" style="margin-top:8px"></div>
   </section>
 </main>
@@ -289,8 +288,8 @@ function ask(o){return new Promise(res=>{
 
 // Artifacts
 let ARTS=[];
-const card=a=>'<div class="acard"><a class="amain" href="/a/'+a.id+'"><div class="atitle">'+esc(a.title)+'</div><div class="ameta">'+(a.role==='owner'?'':esc(a.owner)+' · ')+'v'+a.live_version+' · '+when(a.updated_at)+'</div></a><span class="achip'+(a.role==='owner'?'':' end')+'"><span class="chip">'+(a.sharing?MODES[a.sharing.mode]:ROLES[a.role]||a.role)+'</span></span>'+(a.role==='owner'?'<span class="aact"><button class="sm ghost" data-rename="'+a.id+'">Rename</button><button class="sm ghost" data-delete="'+a.id+'">Delete</button></span>':'')+'</div>';
-async function load(){ARTS=(await api('/artifacts')).artifacts;$('#list').classList.remove('muted');$('#list').innerHTML=ARTS.length?'<div class="alist">'+ARTS.map(card).join('')+'</div>':'<p>Nothing yet.</p>'}
+const card=a=>'<div class="acard"><a class="amain" href="/a/'+a.id+'"><div class="atitle">'+esc(a.title)+'</div><div class="ameta">'+(a.role==='owner'?'':'<span class="who">'+esc(a.owner)+'</span> · ')+'v'+a.live_version+' · '+when(a.updated_at)+'</div></a><span class="achip'+(a.role==='owner'?'':' end')+'"><span class="chip">'+(a.sharing?MODES[a.sharing.mode]:ROLES[a.role]||a.role)+'</span></span>'+(a.role==='owner'?'<span class="aact"><button class="sm ghost" data-rename="'+a.id+'">Rename</button><button class="sm ghost" data-delete="'+a.id+'">Delete</button></span>':'')+'</div>';
+async function load(){ARTS=(await api('/artifacts')).artifacts;$('#list').classList.remove('muted');$('#list').innerHTML=ARTS.length?'<div class="alist'+(ARTS.some(a=>a.role==='owner')?' own':'')+'">'+ARTS.map(card).join('')+'</div>':'<p>Nothing yet.</p>'}
 $('#list').addEventListener('click',async e=>{
   const rid=e.target.dataset?.rename,did=e.target.dataset?.delete,a=ARTS.find(x=>x.id===(rid||did));if(!a)return;
   try{
@@ -320,8 +319,8 @@ if(PUB){
 
 // Tokens: the newest few, the rest behind "Show all".
 let TOKS=[],allToks=false;const FEW=8;
-const trow=t=>'<div class="trow"><div class="tmain"><div class="atitle">'+esc(t.label)+(t.owner!==ME?' <span class="chip">as '+esc(t.owner)+'</span>':'')+(t.scope?' <span class="chip">'+esc(t.scope)+' only</span>':'')+'</div><div class="ameta"><code>'+t.id+'</code> · last used '+(t.last_used?when(t.last_used):'never')+(t.expires_at?' · expires '+day(t.expires_at):'')+'</div></div><button class="sm ghost" data-revoke="'+t.id+'">Revoke</button></div>';
-function showTokens(){$('#tsec').hidden=!PUB&&!TOKS.length;$('#tlist').className=TOKS.length?'alist':'';$('#tlist').innerHTML=(allToks?TOKS:TOKS.slice(0,FEW)).map(trow).join('');$('#tmore').innerHTML=!allToks&&TOKS.length>FEW?'<button id="tall">Show all '+TOKS.length+'</button>':''}
+const trow=t=>'<div class="trow"><div class="tmain"><div class="atitle">'+esc(t.label)+'</div><div class="ameta"><code>'+t.id+'</code> · last used '+(t.last_used?when(t.last_used):'never')+(t.expires_at?' · expires '+day(t.expires_at):'')+'</div></div><span class="achip">'+(t.owner!==ME?'<span class="chip">as '+esc(t.owner)+'</span> ':'')+(t.scope?'<span class="chip">'+esc(t.scope)+' only</span>':'')+'</span><button class="sm ghost" data-revoke="'+t.id+'">Revoke</button></div>';
+function showTokens(){$('#tsec').hidden=!PUB&&!TOKS.length;$('#tlist').className='';$('#tlist').innerHTML=(allToks?TOKS:TOKS.slice(0,FEW)).map(trow).join('');$('#tmore').innerHTML=!allToks&&TOKS.length>FEW?'<button id="tall">Show all '+TOKS.length+'</button>':''}
 async function tokens(){TOKS=(await api('/tokens')).tokens;showTokens()}
 $('#tmore').addEventListener('click',e=>{if(e.target.id==='tall'){allToks=true;showTokens()}});
 let NEWTOK='';
