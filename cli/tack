@@ -4,7 +4,7 @@
 // Lines on a terminal, JSON when piped. Exit 2 usage, 4 auth, 5 API.
 //   TACK_URL    the server's APP_ORIGIN, e.g. https://share.example.com (required)
 //   TACK_TOKEN  a token from the gallery page ("Tokens for the CLI and agents")
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
@@ -143,11 +143,15 @@ async function boardViewer(): Promise<string> {
   if (!existsSync(join(VIEWER_BUILD, "bun.lock"))) die(2, `the board commands need ${VIEWER_BUILD} beside this script (it holds the viewer's package list and lockfile)`);
   const VIEWER_LOCK = readFileSync(join(VIEWER_BUILD, "bun.lock"));
   const lockId = new Bun.CryptoHasher("sha256").update(VIEWER_LOCK).digest("hex").slice(0, 12);
-  const cache = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "tack", `board-viewer-${lockId}`);
-  const site = join(cache, "site");
+  let cache = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "tack", `board-viewer-${lockId}`);
+  let site = join(cache, "site");
   if (existsSync(join(cache, "ready"))) return site;
   if (tty) console.error("tack: fetching the board viewer from npm (first run only)");
-  rmSync(cache, { recursive: true, force: true });
+  // Built in a folder of this run's own and renamed into place when complete, so two first
+  // runs never work in, or delete, each other's files.
+  const final = cache;
+  cache = `${final}.build-${process.pid}-${Date.now().toString(36)}`;
+  site = join(cache, "site");
   mkdirSync(join(cache, "shim"), { recursive: true });
   cpSync(join(VIEWER_BUILD, "package.json"), join(cache, "package.json"));
   writeFileSync(join(cache, "bun.lock"), VIEWER_LOCK);
@@ -174,7 +178,16 @@ async function boardViewer(): Promise<string> {
   cpSync(join(cache, "node_modules", "@dev.fast", "canvas", "dist"), join(site, "canvas"), { recursive: true });
   rmSync(join(site, "canvas", "index.d.ts"), { force: true });
   writeFileSync(join(cache, "ready"), "");
-  return site;
+  try {
+    // A folder left without its ready mark by an interrupted older run is not a build.
+    if (existsSync(final) && !existsSync(join(final, "ready"))) rmSync(final, { recursive: true, force: true });
+    renameSync(cache, final);
+  } catch {
+    // Another run finished first: its build is the same lockfile's, so use it.
+    rmSync(cache, { recursive: true, force: true });
+    if (!existsSync(join(final, "ready"))) die(5, `could not put the board viewer build in place at ${final}`);
+  }
+  return join(final, "site");
 }
 
 const MODE: Record<string, string> = { private: "owner", people: "users", org: "org", public: "public" };
@@ -259,7 +272,7 @@ switch (cmd) {
     const current: string | null = registered.owner === me.email ? registered.artifact : null;
     if (!current) fd.append("title", "Whiteboard board viewer");
     const a = current ? await call("POST", `/artifacts/${current}/versions`, fd) : await call("POST", "/artifacts", fd);
-    await call("PUT", "/whiteboard/viewer", { artifact: a.id });
+    await call("PUT", "/whiteboard/viewer", { artifact: a.id, version: a.live_version });
     out({ ...a, registered: true }, () => `${a.url}\n  ${a.title} · v${a.live_version} · registered at this version as this server's board viewer`);
     break;
   }

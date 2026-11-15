@@ -36,7 +36,6 @@ CREATE TABLE wb_revisions (
   created_at INTEGER NOT NULL,
   UNIQUE (share_id, version)
 );
-CREATE INDEX wb_revisions_share ON wb_revisions(share_id, version DESC);
 
 -- A retried upload (same request id) answers as the first one did.
 CREATE TABLE wb_requests (

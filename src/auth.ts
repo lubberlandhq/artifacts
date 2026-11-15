@@ -117,6 +117,9 @@ export async function createApiToken(
   const token = `tck_${randomToken(30)}`;
   const now = Date.now();
   const expires = limits.ttlSeconds ? new Date(now + limits.ttlSeconds * 1000).toISOString() : null;
+  // A lapsed token is otherwise deleted only when someone presents it; a login nobody uses
+  // again would sit in the table for good.
+  await env.DB.prepare("DELETE FROM tokens WHERE expires_at IS NOT NULL AND expires_at <= ?").bind(new Date(now).toISOString()).run();
   await env.DB.prepare("INSERT INTO tokens (hash, owner, label, created_at, created_by, scope, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(await sha256Hex(token), owner, label, new Date(now).toISOString(), createdBy, limits.scope ?? null, expires)
     .run();

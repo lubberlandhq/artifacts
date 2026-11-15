@@ -107,9 +107,9 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
       if (method === "GET" && parts.length === 1) {
         const { results } = await env.DB.prepare(
           `SELECT substr(hash, 1, 12) AS id, owner, label, scope, expires_at, created_at, last_used FROM tokens
-            WHERE owner = ?1 OR created_by = ?1 ORDER BY created_at DESC`,
+            WHERE (owner = ?1 OR created_by = ?1) AND (expires_at IS NULL OR expires_at > ?2) ORDER BY created_at DESC`,
         )
-          .bind(user.email)
+          .bind(user.email, new Date().toISOString())
           .all();
         return json({ tokens: results });
       }

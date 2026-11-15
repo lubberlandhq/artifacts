@@ -28,7 +28,21 @@ const POLL_TOO_FAST_MS = 1000; // polls closer together than this are told to sl
 // caller address, and a ceiling on the table for callers that spread over many addresses.
 export const MAX_PENDING_PER_CLIENT = 5;
 export const MAX_PENDING = 200;
+// Whiteboard logins one person keeps. Anyone who can sign in may log in (a recipient needs it to
+// open links in Desktop), so the rows are bounded: a new login past this removes the oldest.
+export const MAX_LOGINS_PER_PERSON = 10;
 export const TOKEN_SCOPE = "whiteboard"; // what a device login's token is limited to
+// Who a device-code request counts against: the address, or for IPv6 its /64, since one network
+// hands a single machine as many addresses inside that as it cares to use.
+export function callerBucket(address: string | null): string {
+  const a = (address ?? "").trim().toLowerCase();
+  if (!a.includes(":")) return a;
+  const [head, tail] = a.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
 // How long a device login lasts: WHITEBOARD_LOGIN_DAYS, else 90 days. When it lapses Whiteboard
 // says the sign-in expired and asks for a new one, which is one approval in the browser. A
 // value outside one second to ten years counts as unset, so a typo never yields a token that
@@ -122,7 +136,7 @@ async function deviceCode(req: Request, env: Env): Promise<Response> {
   await env.DB.prepare("DELETE FROM wb_device_codes WHERE expires < ?").bind(now).run();
   const device = randomToken(32);
   const user = newUserCode();
-  const client = await sha256Hex(`wb-device-client\n${env.SESSION_SECRET}\n${req.headers.get("CF-Connecting-IP") ?? ""}`);
+  const client = await sha256Hex(`wb-device-client\n${env.SESSION_SECRET}\n${callerBucket(req.headers.get("CF-Connecting-IP"))}`);
   // One statement counts and inserts, so racing requests cannot pass the caps together.
   const added = await env.DB.prepare(
     `INSERT INTO wb_device_codes (device_hash, user_code, expires, client)
@@ -167,6 +181,12 @@ async function deviceToken(req: Request, env: Env): Promise<Response> {
   // Listed and revoked with the person's other tokens, but good for the share hub only, and
   // only for a while.
   const token = await createApiToken(env, claimed.email, "Whiteboard login", claimed.email, { scope: TOKEN_SCOPE, ttlSeconds: loginTtlSeconds(env) });
+  await env.DB.prepare(
+    `DELETE FROM tokens WHERE owner = ?1 AND scope = ?2 AND hash NOT IN
+       (SELECT hash FROM tokens WHERE owner = ?1 AND scope = ?2 ORDER BY created_at DESC, hash LIMIT ?3)`,
+  )
+    .bind(claimed.email, TOKEN_SCOPE, MAX_LOGINS_PER_PERSON)
+    .run();
   return json({ access_token: token, token_type: "Bearer" });
 }
 
@@ -313,6 +333,21 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
     if (!share) throw new Error("share row missing after insert");
   }
 
+  // Claim the request id before anything is stored. Of two uploads racing with one id, the
+  // first claim stands and the other answers with it, so a retry can never mean two boards.
+  await env.DB.prepare("INSERT OR IGNORE INTO wb_requests (owner, request_id, share_id, created_at) VALUES (?, ?, ?, ?)").bind(email, requestId, share.id, now).run();
+  const claim = await env.DB.prepare("SELECT s.* FROM wb_requests r JOIN wb_shares s ON s.id = r.share_id WHERE r.owner = ? AND r.request_id = ?")
+    .bind(email, requestId)
+    .first<ShareRow>();
+  const dropEmptyShare = (id: string) =>
+    env.DB.prepare("DELETE FROM wb_shares WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM wb_revisions WHERE share_id = ?1)").bind(id).run();
+  // An upload that failed gives its request id back, so the retry stores the board.
+  const unclaim = () => env.DB.prepare("DELETE FROM wb_requests WHERE owner = ? AND request_id = ? AND share_id = ?").bind(email, requestId, share.id).run();
+  if (claim && claim.id !== share.id) {
+    await dropEmptyShare(share.id);
+    return json({ shareId: claim.id, url: await linkForUpload(env, claim) });
+  }
+
   // One link per board; a higher saved version adds a revision, anything else changes nothing.
   const latest = await env.DB.prepare("SELECT MAX(version) AS v FROM wb_revisions WHERE share_id = ?").bind(share.id).first<{ v: number | null }>();
   if (latest?.v == null || bundle.version > latest.v) {
@@ -321,7 +356,8 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
       await env.BLOBS.put(blobKey(share.id, revisionId), bytes, { httpMetadata: { contentType: "application/json" } });
     } catch (e) {
       // A first upload that stored nothing leaves no share behind to list with a dead link.
-      await env.DB.prepare("DELETE FROM wb_shares WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM wb_revisions WHERE share_id = ?1)").bind(share.id).run();
+      await unclaim();
+      await dropEmptyShare(share.id);
       throw e;
     }
     try {
@@ -345,14 +381,14 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
     } catch (e) {
       // The same version landed from a concurrent upload: that one stands.
       await env.BLOBS.delete(blobKey(share.id, revisionId));
-      if (!String(e).includes("UNIQUE")) throw e;
+      if (!String(e).includes("UNIQUE")) {
+        await unclaim();
+        throw e;
+      }
     }
   }
 
-  await env.DB.batch([
-    env.DB.prepare("INSERT OR IGNORE INTO wb_requests (owner, request_id, share_id, created_at) VALUES (?, ?, ?, ?)").bind(email, requestId, share.id, now),
-    env.DB.prepare("DELETE FROM wb_requests WHERE created_at < ?").bind(now - REQUEST_TTL_MS),
-  ]);
+  await env.DB.prepare("DELETE FROM wb_requests WHERE created_at < ?").bind(now - REQUEST_TTL_MS).run();
   return json({ shareId: share.id, url: await linkForUpload(env, share) });
 }
 
@@ -361,11 +397,13 @@ async function listShares(env: Env, owner: string | null, cursor: string | null,
   const PAGE = 100;
   const email = owner ?? "";
   const everyone = owner === null ? 1 : 0;
-  let after: ShareRow | null = null;
+  // The cursor spells out where the last page ended (<created_at>.<share id>), so the listing
+  // goes on even when that share was revoked between pages.
+  let after: { created_at: number; id: string } | null = null;
   if (cursor) {
-    if (!UUID.test(cursor)) return fail(400, "invalid_request");
-    after = await env.DB.prepare("SELECT * FROM wb_shares WHERE id = ?1 AND (owner = ?2 OR ?3 = 1)").bind(cursor, email, everyone).first<ShareRow>();
-    if (!after) return fail(400, "invalid_request");
+    const m = cursor.match(/^(\d{1,16})\.([0-9a-f-]{36})$/i);
+    if (!m || !UUID.test(m[2])) return fail(400, "invalid_request");
+    after = { created_at: Number(m[1]), id: m[2].toLowerCase() };
   }
   const { results } = await (after
     ? env.DB.prepare(
@@ -396,7 +434,7 @@ async function listShares(env: Env, owner: string | null, cursor: string | null,
       };
     }),
   );
-  return json({ items, ...(results.length > PAGE ? { next: page[page.length - 1].id } : {}) });
+  return json({ items, ...(results.length > PAGE ? { next: `${page[page.length - 1].created_at}.${page[page.length - 1].id}` } : {}) });
 }
 
 async function revisionsOf(env: Env, shareId: string): Promise<RevisionRow[]> {
@@ -529,12 +567,15 @@ export async function handleWhiteboardApi(req: Request, env: Env, url: URL): Pro
     if (method === "PUT") {
       if (!email) return fail(401, "login_required");
       if (!isAdmin(policy, email)) return fail(403, "forbidden");
-      const b = (await req.json().catch(() => null)) as { artifact?: unknown } | null;
+      const b = (await req.json().catch(() => null)) as { artifact?: unknown; version?: unknown } | null;
       const a = typeof b?.artifact === "string" ? await getArtifact(env, b.artifact) : null;
-      if (!a) return fail(400, "invalid_request");
+      // The version is named, not "whatever is live now": someone else publishing to the
+      // artifact between the admin's publish and this call must not get their files registered.
+      const version = b?.version;
+      if (!a || typeof version !== "number" || !Number.isSafeInteger(version) || version < 1 || version > a.live_version) return fail(400, "invalid_request");
       if (a.owner !== email) return fail(403, "forbidden");
-      await setSetting(env, VIEWER_SETTING, `${a.id}:${a.live_version}`);
-      return json({ artifact: a.id, version: a.live_version, owner: a.owner });
+      await setSetting(env, VIEWER_SETTING, `${a.id}:${version}`);
+      return json({ artifact: a.id, version, owner: a.owner });
     }
   }
 

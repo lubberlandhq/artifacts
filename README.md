@@ -70,9 +70,13 @@ wrangler deploy
 config and copy it in before deploying.
 
 When updating a server that is already running, apply the migrations before `wrangler deploy`.
-The Whiteboard support adds three (`0003`, `0004`, `0005`), and the Worker reads the token
-columns the last two add on every token request, so deployed ahead of them every request made
-with a token fails.
+The Whiteboard support adds four (`0003` through `0006`). The Worker reads the token columns
+`0004` and `0005` add on every token request, and writes the column `0006` adds on every
+`whiteboard login`, so deployed ahead of them those requests fail.
+
+Before rolling back to a Worker from before the Whiteboard support, delete the Whiteboard
+logins (`DELETE FROM tokens WHERE scope IS NOT NULL`): the older Worker reads neither a token's
+scope nor its expiry, and would treat each one as a full token that never expires.
 
 Sign in at your app host, create a token on the gallery page, and:
 

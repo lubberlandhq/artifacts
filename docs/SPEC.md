@@ -173,18 +173,18 @@ one the share hub frames (section 7a).
 
 | Route | Who | What |
 |---|---|---|
-| `POST /api/auth/device/code` | anyone | starts a device login: device code, user code, `/device?user_code=`. 429 `slow_down` while the caller's address holds 5 unexpired codes, or the server 200 |
-| `GET, POST /device` | browser session | shows the user code; POST (same-origin) approves it |
+| `POST /api/auth/device/code` | anyone | starts a device login: device code, user code, `/device?user_code=`. 429 `slow_down` while the caller's address (for IPv6, its /64) holds 5 unexpired codes, or the server 200 |
+| `GET, POST /device` | browser session | shows the user code; POST (same-origin) approves it. The page is served with `Referrer-Policy: same-origin`, or a browser would send the form with `Origin: null` |
 | `POST /api/auth/device/token` | device code | `authorization_pending` until approved, then `{access_token}` once |
 | `GET /api/auth/get-session` | bearer | `{user:{id, name, email}}`, all the person's email |
 | `GET /api/auth/token` | — | 404: tells the client to send its token as it is |
-| `POST /api/v2/shares` | publisher | `{requestId, bundle}` → `{shareId, url}` |
-| `GET /api/v2/shares` | bearer | `{items:[{shareId, reviewId, title, latestVersion, createdAt, url}], next?}`; an admin adds `?owner=<email>` or `?owner=*` and gets each item's `owner` |
+| `POST /api/v2/shares` | publisher | `{requestId, bundle}` → `{shareId, url}`. The request id is claimed before anything is stored: of two uploads with one id, both answer the first one's share |
+| `GET /api/v2/shares` | bearer | `{items:[{shareId, reviewId, title, latestVersion, createdAt, url}], next?}`, 100 a page; `?cursor=<next>` continues, and `next` (`<createdAt>.<shareId>`) still works after that share is revoked; an admin adds `?owner=<email>` or `?owner=*` and gets each item's `owner` |
 | `GET /api/v2/shares/:id/link`, `/revisions` | owner | recover the link, list revisions |
 | `DELETE /api/v2/shares/:id` | owner or admin | revoke |
 | `GET /api/v2/shared/:cap[?rev=]`, `/bundle` | anyone | who shared it and which revision; the snapshot |
 | `GET /s/:cap[?rev=]` | anyone | the page: title, sender, "Open in Whiteboard", the board framed |
-| `GET, PUT /api/whiteboard/viewer` | signed in; admin | which artifact, at which version, holds the board viewer |
+| `GET, PUT /api/whiteboard/viewer` | signed in; admin | which artifact, at which version, holds the board viewer; PUT takes `{artifact, version}` and registers exactly that version |
 
 Rules:
 
@@ -195,7 +195,9 @@ Rules:
   included (`currentUser` returns nobody for a scoped token unless the caller names its scope).
   Only a browser session approves a code on `/device`; a token never does, so a token cannot
   mint another. Anyone who can sign in may log Whiteboard in (a recipient needs it to open links
-  in Desktop); only publishers may share.
+  in Desktop); only publishers may share. A person keeps at most 10 Whiteboard logins: one more
+  removes their oldest. Expired tokens are deleted when presented and whenever a token is minted,
+  and are left out of the token list.
 - Reads are anonymous: the client sends them without credentials and refuses redirects, so the
   capability (32 random bytes, 43 base64url characters) is the only read control. Only its
   SHA-256 is stored for look-ups, plus a copy encrypted under `SESSION_SECRET` so the owner can

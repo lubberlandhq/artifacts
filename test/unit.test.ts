@@ -4,7 +4,7 @@ import { decryptText, encryptText, randomId, seal, unseal } from "../src/crypto"
 import { contentCsp } from "../src/csp";
 import type { Artifact } from "../src/env";
 import { validPath } from "../src/store";
-import { bundleProblem, loginTtlSeconds, normalizeUserCode } from "../src/whiteboard";
+import { bundleProblem, callerBucket, loginTtlSeconds, normalizeUserCode } from "../src/whiteboard";
 
 const policy = orgPolicy({ ORG_EMAILS: "jj@x.com", ORG_DOMAINS: "example.com", PUBLISHERS: "" });
 const art = (over: Partial<Artifact> = {}): Artifact => ({
@@ -132,6 +132,21 @@ describe("whiteboard hub", () => {
     expect(bundleProblem({ ...ok, snapshot: [] })).not.toBeNull();
     expect(bundleProblem({ ...ok, sources: {} })).not.toBeNull();
     expect(bundleProblem(null)).not.toBeNull();
+  });
+});
+
+// Value: protects=device-code requests count against the caller's IPv4 address or IPv6 /64, however the address is written;
+// fails_when=an IPv6 address is counted whole, or two spellings of one network land in different buckets;
+// seam=none; no_claim=what Cloudflare puts in CF-Connecting-IP
+describe("who a device-code request counts against", () => {
+  test("IPv4 by address, IPv6 by /64", () => {
+    expect(callerBucket("203.0.113.9")).toBe("203.0.113.9");
+    expect(callerBucket(null)).toBe("");
+    expect(callerBucket("2001:db8:1:2::1")).toBe("2001:db8:1:2::/64");
+    expect(callerBucket("2001:0DB8:0001:0002:aaaa:bbbb:cccc:dddd")).toBe("2001:db8:1:2::/64");
+    expect(callerBucket("2001:db8:1:3::1")).not.toBe(callerBucket("2001:db8:1:2::1"));
+    expect(callerBucket("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(callerBucket("::1")).toBe("0:0:0:0::/64");
   });
 });
 
