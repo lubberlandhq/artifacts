@@ -25,6 +25,9 @@ const DEVICE_TTL = 600; // seconds a device code stays approvable
 const POLL_INTERVAL = 2; // seconds the client waits between polls
 const POLL_TOO_FAST_MS = 1000; // polls closer together than this are told to slow down
 export const TOKEN_SCOPE = "whiteboard"; // what a device login's token is limited to
+// How long a device login lasts. When it lapses Whiteboard says the sign-in expired and asks
+// for a new one, which is one approval in the browser.
+export const TOKEN_TTL_SECONDS = 90 * 24 * 3600;
 const REQUEST_TTL_MS = 7 * 24 * 3600 * 1000;
 const VIEWER_SETTING = "whiteboard_viewer";
 
@@ -141,8 +144,9 @@ async function deviceToken(req: Request, env: Env): Promise<Response> {
     .bind(hash)
     .first<{ email: string }>();
   if (!claimed) return oauthFail("expired_token");
-  // Listed and revoked with the person's other tokens, but good for the share hub only.
-  const token = await createApiToken(env, claimed.email, "Whiteboard login", claimed.email, TOKEN_SCOPE);
+  // Listed and revoked with the person's other tokens, but good for the share hub only, and
+  // only for a while.
+  const token = await createApiToken(env, claimed.email, "Whiteboard login", claimed.email, { scope: TOKEN_SCOPE, ttlSeconds: TOKEN_TTL_SECONDS });
   return json({ access_token: token, token_type: "Bearer" });
 }
 

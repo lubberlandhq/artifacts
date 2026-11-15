@@ -106,7 +106,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
       if (!user || user.via !== "session") return err(401, "sign in on the web to manage tokens");
       if (method === "GET" && parts.length === 1) {
         const { results } = await env.DB.prepare(
-          `SELECT substr(hash, 1, 12) AS id, owner, label, scope, created_at, last_used FROM tokens
+          `SELECT substr(hash, 1, 12) AS id, owner, label, scope, expires_at, created_at, last_used FROM tokens
             WHERE owner = ?1 OR created_by = ?1 ORDER BY created_at DESC`,
         )
           .bind(user.email)

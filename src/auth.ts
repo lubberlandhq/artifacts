@@ -26,8 +26,14 @@ export async function currentUser(req: Request, env: Env, scope?: string): Promi
   if (authz?.startsWith("Bearer ")) {
     // Lookup is by hash alone, never by prefix: tokens minted as lsh_ (before the rename) stay valid.
     const hash = await sha256Hex(authz.slice(7).trim());
-    const row = await env.DB.prepare("SELECT owner, scope FROM tokens WHERE hash = ?").bind(hash).first<{ owner: string; scope: string | null }>();
+    const row = await env.DB.prepare("SELECT owner, scope, expires_at FROM tokens WHERE hash = ?")
+      .bind(hash)
+      .first<{ owner: string; scope: string | null; expires_at: string | null }>();
     if (!row || (row.scope && row.scope !== scope)) return null;
+    if (row.expires_at && row.expires_at <= new Date().toISOString()) {
+      await env.DB.prepare("DELETE FROM tokens WHERE hash = ?").bind(hash).run();
+      return null;
+    }
     await env.DB.prepare("UPDATE tokens SET last_used = ? WHERE hash = ?").bind(new Date().toISOString(), hash).run();
     return { email: row.owner, via: "token", ...(row.scope ? { scope: row.scope } : {}) };
   }
@@ -100,10 +106,19 @@ export async function verifyAccessJwt(env: Env, jwt: string): Promise<string | n
   return claims.email?.toLowerCase() ?? null; // service tokens carry no email and get no session
 }
 
-export async function createApiToken(env: Env, owner: string, label: string, createdBy: string, scope: string | null = null): Promise<string> {
+// `limits` narrows a token: a scope it is confined to, and a lifetime in seconds.
+export async function createApiToken(
+  env: Env,
+  owner: string,
+  label: string,
+  createdBy: string,
+  limits: { scope?: string; ttlSeconds?: number } = {},
+): Promise<string> {
   const token = `tck_${randomToken(30)}`;
-  await env.DB.prepare("INSERT INTO tokens (hash, owner, label, created_at, created_by, scope) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(await sha256Hex(token), owner, label, new Date().toISOString(), createdBy, scope)
+  const now = Date.now();
+  const expires = limits.ttlSeconds ? new Date(now + limits.ttlSeconds * 1000).toISOString() : null;
+  await env.DB.prepare("INSERT INTO tokens (hash, owner, label, created_at, created_by, scope, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(await sha256Hex(token), owner, label, new Date(now).toISOString(), createdBy, limits.scope ?? null, expires)
     .run();
   return token;
 }

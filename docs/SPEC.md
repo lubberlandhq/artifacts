@@ -87,8 +87,9 @@ D1 holds metadata; R2 holds file bytes.
 - `versions(artifact_id, ver, author, label, manifest, created_at)`, primary key
   `(artifact_id, ver)`. `manifest` is JSON `{path: {sha256, size, type}}`.
 - `comments(id, artifact_id, ver, author, body, resolved, created_at)`.
-- `tokens(hash, owner, label, created_at, last_used, created_by, scope)`. `scope` NULL is the
-  whole API; `whiteboard` is the share hub only (section 7a).
+- `tokens(hash, owner, label, created_at, last_used, created_by, scope, expires_at)`. `scope`
+  NULL is the whole API; `whiteboard` is the share hub only (section 7a). `expires_at` NULL never
+  expires; a token past it is refused and deleted.
 - `handoffs(…)`: single-use sign-in handoffs.
 - R2: `blob/<sha256>`, content-addressed, so a republish that changes one file copies nothing.
 - Share hub (section 7a): `wb_device_codes`, `wb_shares`, `wb_revisions`, `wb_requests` and
@@ -184,7 +185,8 @@ one the share hub frames (section 7a).
 Rules:
 
 - The token a device login yields is labelled "Whiteboard login", listed and revoked on the
-  gallery page, and scoped (`tokens.scope = 'whiteboard'`, migration 0004): it works on
+  gallery page, expires after 90 days (`tokens.expires_at`, migration 0005; Whiteboard then asks
+  the person to sign in again), and is scoped (`tokens.scope = 'whiteboard'`, migration 0004): it works on
   `/api/auth/get-session` and `/api/v2/shares…` and counts as signed out everywhere else, pages
   included (`currentUser` returns nobody for a scoped token unless the caller names its scope).
   Only a browser session approves a code on `/device`; a token never does, so a token cannot

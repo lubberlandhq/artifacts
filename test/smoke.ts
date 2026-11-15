@@ -204,6 +204,10 @@ check("no JWT exchange: the client sends its token as it is", (await wb("/api/au
 // The token Whiteboard gets is for the hub only, and only a browser session can approve a code.
 const hubOnly = { headers: { Authorization: `Bearer ${wbTok}` } };
 check("a Whiteboard login token can't read or publish artifacts", (await wb("/api/artifacts", hubOnly)).status === 401 && ((await (await wb("/api/me", hubOnly)).json()) as any).email === null && tack(wbTok, "publish", join(dir, "index.html"), "--title", "Scoped").code === 4);
+const minted: any = ((await (await api(nate, "/tokens")).json()) as any).tokens.find((t: any) => t.label === "Whiteboard login" && t.scope === "whiteboard");
+const lifeDays = minted ? (Date.parse(minted.expires_at) - Date.now()) / 86_400_000 : 0;
+check("…is listed with the person's tokens, and expires in 90 days", lifeDays > 89 && lifeDays <= 90, JSON.stringify(minted));
+check("a token made on the gallery page does not expire", ((await (await api(nate, "/tokens")).json()) as any).tokens.find((t: any) => t.label === "smoke")?.expires_at === null);
 const scopedPage = await wb(`/a/${id}`, { ...hubOnly, redirect: "manual" });
 check("…or open an artifact's page, which would hand it the files", scopedPage.status === 302 && !(await scopedPage.text()).includes("/t/") && (await wb(`/api/artifacts/${id}/frame`, hubOnly)).status === 401);
 check("a full token still opens that page", (await (await wb(`/a/${id}`, { headers: { Authorization: `Bearer ${tok.token}` } })).text()).includes("/t/"));
