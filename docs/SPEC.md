@@ -249,7 +249,7 @@ real `wrangler.jsonc` outside this repo (it is gitignored here) and copies it in
 | `ORG_NAME` | label for `org` mode in the UI, e.g. `Example Co` |
 | `ORG_EMAILS`, `ORG_DOMAINS`, `PUBLISHERS`, `ADMINS` | comma-separated |
 | `SESSION_SECRET` | `wrangler secret put` |
-| `WHITEBOARD_LOGIN_DAYS` | optional; days a Whiteboard login lasts, default `90` |
+| `WHITEBOARD_LOGIN_DAYS` | optional; days a Whiteboard login lasts, default `90`; a value outside one second to 3650 days counts as unset |
 | `DEV_LOGIN` | `"1"` only in `.dev.vars` |
 
 Bindings: D1 `DB`, R2 `BLOBS`. Routes: the app and login hosts as custom domains, and

@@ -113,7 +113,9 @@ describe("whiteboard hub", () => {
     expect(loginTtlSeconds({})).toBe(90 * day);
     expect(loginTtlSeconds({ WHITEBOARD_LOGIN_DAYS: "30" })).toBe(30 * day);
     expect(loginTtlSeconds({ WHITEBOARD_LOGIN_DAYS: " 0.5 " })).toBe(day / 2);
-    for (const bad of ["", "0", "-7", "soon", "Infinity"]) expect(loginTtlSeconds({ WHITEBOARD_LOGIN_DAYS: bad })).toBe(90 * day);
+    expect(loginTtlSeconds({ WHITEBOARD_LOGIN_DAYS: "3650" })).toBe(3650 * day);
+    // Too small to be a second, too large for a date, or not a number: the default, never 0 or forever.
+    for (const bad of ["", "0", "-7", "soon", "Infinity", "0.000001", "3651", "9999999", "1e300"]) expect(loginTtlSeconds({ WHITEBOARD_LOGIN_DAYS: bad })).toBe(90 * day);
   });
   // protects: only review-share/2 snapshots are stored. fails_when: another format, a missing
   // required part or a bad version passes. no_claim: the document inside `snapshot` is valid;

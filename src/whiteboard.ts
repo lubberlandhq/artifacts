@@ -27,11 +27,14 @@ const POLL_TOO_FAST_MS = 1000; // polls closer together than this are told to sl
 export const TOKEN_SCOPE = "whiteboard"; // what a device login's token is limited to
 // How long a device login lasts: WHITEBOARD_LOGIN_DAYS, else 90 days. When it lapses Whiteboard
 // says the sign-in expired and asks for a new one, which is one approval in the browser. A
-// value that is not a positive number counts as unset, so a typo never yields a token that
-// expires at once or never.
+// value outside one second to ten years counts as unset, so a typo never yields a token that
+// expires at once, never expires, or has a date no clock can compare.
+const DEFAULT_LOGIN_DAYS = 90;
+const MAX_LOGIN_DAYS = 3650;
 export function loginTtlSeconds(env: Pick<Env, "WHITEBOARD_LOGIN_DAYS">): number {
   const days = Number((env.WHITEBOARD_LOGIN_DAYS ?? "").trim() || NaN);
-  return Math.round((Number.isFinite(days) && days > 0 ? days : 90) * 24 * 3600);
+  const seconds = Math.round(days * 24 * 3600);
+  return Number.isFinite(days) && seconds >= 1 && days <= MAX_LOGIN_DAYS ? seconds : DEFAULT_LOGIN_DAYS * 24 * 3600;
 }
 const REQUEST_TTL_MS = 7 * 24 * 3600 * 1000;
 const VIEWER_SETTING = "whiteboard_viewer";

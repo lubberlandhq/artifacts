@@ -128,9 +128,9 @@ async function send(fd: FormData, defaultTitle: string) {
 // board page loads nothing from outside its own origin.
 const BOARD_FORMAT = "review-share/2";
 // The viewer's packages and every package they depend on are pinned by board-viewer-build/bun.lock.
+// Read only by the board commands, so the other commands work from a copy of this script alone.
 const VIEWER_BUILD = join(import.meta.dir, "board-viewer-build");
-const VIEWER_LOCK = readFileSync(join(VIEWER_BUILD, "bun.lock"));
-const CANVAS_VERSION: string = JSON.parse(readFileSync(join(VIEWER_BUILD, "package.json"), "utf8")).dependencies["@dev.fast/canvas"];
+const canvasVersion = (): string => JSON.parse(readFileSync(join(VIEWER_BUILD, "package.json"), "utf8")).dependencies["@dev.fast/canvas"];
 const REACT_ENTRIES: [string, string][] = [
   ["react", "react"],
   ["react/jsx-runtime", "jsx-runtime"],
@@ -140,6 +140,8 @@ const REACT_ENTRIES: [string, string][] = [
 
 async function boardViewer(): Promise<string> {
   // One build per lockfile: a changed lock is a new folder, never a reused one.
+  if (!existsSync(join(VIEWER_BUILD, "bun.lock"))) die(2, `the board commands need ${VIEWER_BUILD} beside this script (it holds the viewer's package list and lockfile)`);
+  const VIEWER_LOCK = readFileSync(join(VIEWER_BUILD, "bun.lock"));
   const lockId = new Bun.CryptoHasher("sha256").update(VIEWER_LOCK).digest("hex").slice(0, 12);
   const cache = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "tack", `board-viewer-${lockId}`);
   const site = join(cache, "site");
@@ -251,7 +253,7 @@ switch (cmd) {
     const me = await call("GET", "/me");
     if (!me.admin) die(4, "only an admin registers the board viewer");
     const fd = await boardViewerFiles();
-    fd.append("label", `canvas ${CANVAS_VERSION}`);
+    fd.append("label", `canvas ${canvasVersion()}`);
     // Update the registered viewer when it is yours; an admin registers only their own artifact.
     const registered = await call("GET", "/whiteboard/viewer");
     const current: string | null = registered.owner === me.email ? registered.artifact : null;
