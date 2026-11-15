@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler d1 migrations apply DB --local -c wrangler.dev.jsonc && wrangler dev -c wrangler.dev.jsonc",
     "typecheck": "tsc --noEmit",
-    "test": "bun test test/unit.test.ts test/access.test.ts",
+    "test": "bun test test/unit.test.ts test/access.test.ts test/pages.test.ts",
     "smoke": "bun test/smoke.ts"
   },
   "devDependencies": {
