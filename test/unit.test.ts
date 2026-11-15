@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { tokenLimits } from "../src/auth";
 import { canAdmin, canPublish, canRead, canWrite, isAdmin, orgPolicy, parseEmails, visibleVersion } from "../src/authz";
 import { decryptText, encryptText, randomId, seal, unseal } from "../src/crypto";
 import { contentCsp } from "../src/csp";
@@ -132,6 +133,18 @@ describe("whiteboard hub", () => {
     expect(bundleProblem({ ...ok, snapshot: [] })).not.toBeNull();
     expect(bundleProblem({ ...ok, sources: {} })).not.toBeNull();
     expect(bundleProblem(null)).not.toBeNull();
+  });
+});
+
+// Value: protects=a token limit that is given always binds: a zero, negative or non-numeric lifetime and an empty scope are refused, never read as "no limit";
+// fails_when=a falsy lifetime mints a token that never expires, or an empty scope a token for the whole API;
+// seam=none; no_claim=the database row (createApiToken writes what this returns)
+describe("token limits", () => {
+  test("a given limit binds or is refused", () => {
+    expect(tokenLimits({})).toEqual({ scope: null, ttlSeconds: null });
+    expect(tokenLimits({ scope: "whiteboard", ttlSeconds: 60 })).toEqual({ scope: "whiteboard", ttlSeconds: 60 });
+    for (const bad of [0, -1, 0.5, NaN, Infinity]) expect(() => tokenLimits({ ttlSeconds: bad })).toThrow();
+    for (const bad of ["", "  "]) expect(() => tokenLimits({ scope: bad })).toThrow();
   });
 });
 

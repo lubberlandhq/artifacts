@@ -29,13 +29,14 @@ export async function currentUser(req: Request, env: Env, scope?: string): Promi
     const row = await env.DB.prepare("SELECT owner, scope, expires_at FROM tokens WHERE hash = ?")
       .bind(hash)
       .first<{ owner: string; scope: string | null; expires_at: string | null }>();
-    if (!row || (row.scope && row.scope !== scope)) return null;
+    // Any scope at all limits the token, an empty one included: only NULL is a full token.
+    if (!row || (row.scope !== null && row.scope !== scope)) return null;
     if (row.expires_at && row.expires_at <= new Date().toISOString()) {
       await env.DB.prepare("DELETE FROM tokens WHERE hash = ?").bind(hash).run();
       return null;
     }
     await env.DB.prepare("UPDATE tokens SET last_used = ? WHERE hash = ?").bind(new Date().toISOString(), hash).run();
-    return { email: row.owner, via: "token", ...(row.scope ? { scope: row.scope } : {}) };
+    return { email: row.owner, via: "token", ...(row.scope !== null ? { scope: row.scope } : {}) };
   }
   const c = cookie(req, SESSION_COOKIE);
   if (!c) return null;
@@ -107,6 +108,14 @@ export async function verifyAccessJwt(env: Env, jwt: string): Promise<string | n
 }
 
 // `limits` narrows a token: a scope it is confined to, and a lifetime in seconds.
+// A limit that is given binds. A lifetime that is not at least a second, or an empty scope, is a
+// caller's mistake, and reading it as "no limit" would mint a full token that never expires.
+export function tokenLimits(limits: { scope?: string; ttlSeconds?: number }): { scope: string | null; ttlSeconds: number | null } {
+  if (limits.ttlSeconds !== undefined && !(Number.isFinite(limits.ttlSeconds) && limits.ttlSeconds >= 1)) throw new Error(`token lifetime must be at least one second, got ${limits.ttlSeconds}`);
+  if (limits.scope !== undefined && !limits.scope.trim()) throw new Error("token scope must not be empty");
+  return { scope: limits.scope ?? null, ttlSeconds: limits.ttlSeconds ?? null };
+}
+
 export async function createApiToken(
   env: Env,
   owner: string,
@@ -114,14 +123,15 @@ export async function createApiToken(
   createdBy: string,
   limits: { scope?: string; ttlSeconds?: number } = {},
 ): Promise<string> {
+  const { scope, ttlSeconds } = tokenLimits(limits);
   const token = `tck_${randomToken(30)}`;
   const now = Date.now();
-  const expires = limits.ttlSeconds ? new Date(now + limits.ttlSeconds * 1000).toISOString() : null;
+  const expires = ttlSeconds !== null ? new Date(now + ttlSeconds * 1000).toISOString() : null;
   // A lapsed token is otherwise deleted only when someone presents it; a login nobody uses
   // again would sit in the table for good.
   await env.DB.prepare("DELETE FROM tokens WHERE expires_at IS NOT NULL AND expires_at <= ?").bind(new Date(now).toISOString()).run();
   await env.DB.prepare("INSERT INTO tokens (hash, owner, label, created_at, created_by, scope, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(await sha256Hex(token), owner, label, new Date(now).toISOString(), createdBy, limits.scope ?? null, expires)
+    .bind(await sha256Hex(token), owner, label, new Date(now).toISOString(), createdBy, scope, expires)
     .run();
   return token;
 }

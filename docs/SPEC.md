@@ -209,9 +209,13 @@ Rules:
   gives ids and owners, not links: `url` is null for a share that is not the caller's. That power
   needs a session or a full token; an admin's Whiteboard login token has none of it.
 - One link per (owner, board). A bundle is accepted when it is a `review-share/2` object with the
-  parts every reader requires, at most 16 MiB; the reader validates the rest. A repeated
-  `requestId` answers as the first upload did. A higher `bundle.version` adds a revision; an
-  equal or lower one changes nothing.
+  parts every reader requires, at most 16 MiB; the reader validates the rest. A `requestId`
+  sent again answers as the first upload did once that upload's board is stored (see the route
+  table for one that is not). A higher `bundle.version` adds a revision and a
+  lower one changes nothing. The newest version sent again with different content replaces that
+  revision's snapshot in place (same link, same revision id): Whiteboard sends one version for a
+  board shared with uncommitted changes and again once committed, and the second must not stay
+  view-only. The same content again changes nothing.
 - Snapshots are stored in R2 at `wb/<share id>/<revision id>.json`. Revoking deletes those
   objects, then the rows, then sweeps the objects once more; every read route then answers 404,
   the same as for an unknown capability. The content origin serves a snapshot only while its

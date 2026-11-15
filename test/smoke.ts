@@ -497,6 +497,27 @@ const raceWon = raced.find((r) => r.shareId)?.shareId;
 check("two uploads with one request id are one share", raceShares === 1 && !!raceWon && racedRes.every((r, i) => (r.status === 200 && raced[i].shareId === raceWon) || (r.status === 409 && raced[i].error?.code === "request_in_progress")), `${racedRes.map((r) => r.status).join()} ${raceShares}`);
 raced[0] = { shareId: raceWon };
 
+// Value: protects=the newest version sent again with different content replaces its snapshot under the same link and revision, and identical content changes nothing;
+// fails_when=an equal version is dropped (a board shared dirty, then committed, stays view-only), or adds a second revision, or a lower version overwrites;
+// seam=none; no_claim=what Whiteboard itself sends (the two bundles are built here)
+const redoBundle = { ...bundle, reviewId: `redo-${requestId}`, title: "Dirty", frozen: true };
+const redoUp = async (b: unknown) => (await (await wbJson("/api/v2/shares", { requestId: crypto.randomUUID(), bundle: b }, wbTok)).json()) as any;
+const redo = await redoUp(redoBundle);
+const redoCap = String(redo.url).split("/s/")[1];
+const redoRevs = async () => ((await (await wb(`/api/v2/shares/${redo.shareId}/revisions`, auth)).json()) as any).items as any[];
+const redoRev = (await redoRevs())[0]?.id;
+const redoNow = async () => (await (await wb(`/api/v2/shared/${redoCap}/bundle`)).json()) as any;
+const clean = await redoUp({ ...redoBundle, title: "Clean", frozen: false });
+const afterClean = await redoRevs();
+check("the newest version sent again with new content replaces the snapshot in place", clean.url === redo.url && afterClean.length === 1 && afterClean[0].id === redoRev && (await redoNow()).title === "Clean" && (await redoNow()).frozen === false, JSON.stringify(afterClean));
+const stamp = d1(`SELECT created_at FROM wb_revisions WHERE id = '${redoRev}'`)[0].created_at;
+await redoUp({ ...redoBundle, title: "Clean", frozen: false });
+check("…the same content again changes nothing", d1(`SELECT created_at FROM wb_revisions WHERE id = '${redoRev}'`)[0].created_at === stamp && (await redoRevs()).length === 1);
+await redoUp({ ...redoBundle, version: redoBundle.version + 1, title: "Newer" });
+await redoUp({ ...redoBundle, title: "Older, different" });
+check("…and an older version never overwrites", (await redoRevs()).length === 2 && (await redoNow()).title === "Newer" && (await (await wb(`/api/v2/shared/${redoCap}/bundle?rev=${redoRev}`)).json() as any).title === "Clean");
+await wb(`/api/v2/shares/${redo.shareId}`, { method: "DELETE", ...auth });
+
 // Value: protects=a request id left behind by an upload that died is not an answer: the retry stores the board;
 // fails_when=a recorded request id alone answers 200, so the newer version is never stored and nobody is told;
 // why_new=the id is now recorded before the board is stored; seam=none;

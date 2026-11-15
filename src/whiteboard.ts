@@ -366,12 +366,20 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
     if (!claim || claim.id !== share.id) return new Response(JSON.stringify({ error: { code: "request_in_progress" } }), { status: 409, headers: { ...HEADERS, "Retry-After": "5" } });
   }
 
-  // One link per board; a higher saved version adds a revision, anything else changes nothing.
-  const latest = await env.DB.prepare("SELECT MAX(version) AS v FROM wb_revisions WHERE share_id = ?").bind(share.id).first<{ v: number | null }>();
-  if (latest?.v == null || bundle.version > latest.v) {
+  // One link per board. A higher saved version adds a revision; a lower one changes nothing. The
+  // newest version sent again with different content replaces that revision's snapshot in place:
+  // Whiteboard's version is the saved board's, while what a share carries (frozen, sources) also
+  // depends on the worktree, so a board shared with uncommitted changes and shared again once
+  // committed arrives under one version and must not keep the view-only snapshot.
+  const sha = await sha256Hex(bytes);
+  const meta = { httpMetadata: { contentType: "application/json" }, customMetadata: { sha256: sha } };
+  const newest = await env.DB.prepare("SELECT id, version FROM wb_revisions WHERE share_id = ? ORDER BY version DESC LIMIT 1")
+    .bind(share.id)
+    .first<{ id: string; version: number }>();
+  if (!newest || bundle.version > newest.version) {
     const revisionId = crypto.randomUUID();
     try {
-      await env.BLOBS.put(blobKey(share.id, revisionId), bytes, { httpMetadata: { contentType: "application/json" } });
+      await env.BLOBS.put(blobKey(share.id, revisionId), bytes, meta);
     } catch (e) {
       // A first upload that stored nothing leaves no share behind to list with a dead link.
       await unclaim();
@@ -403,6 +411,18 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
         await unclaim();
         throw e;
       }
+    }
+  } else if (bundle.version === newest.version) {
+    const key = blobKey(share.id, newest.id);
+    const held = await env.BLOBS.head(key);
+    if (held?.customMetadata?.sha256 !== sha) {
+      await env.BLOBS.put(key, bytes, meta);
+      const kept = await env.DB.batch([
+        env.DB.prepare("UPDATE wb_revisions SET size = ?, sender = ?, frozen = ?, created_at = ? WHERE id = ?").bind(bytes.byteLength, email, bundle.frozen === true ? 1 : 0, now, newest.id),
+        env.DB.prepare("UPDATE wb_shares SET title = ?1 WHERE id = ?2 AND NOT EXISTS (SELECT 1 FROM wb_revisions WHERE share_id = ?2 AND version > ?3)").bind(bundle.title, share.id, bundle.version),
+      ]);
+      // Revoked while this ran: the snapshot just written has no revision left to belong to.
+      if (!kept[0].meta.changes) await env.BLOBS.delete(key);
     }
   }
 
