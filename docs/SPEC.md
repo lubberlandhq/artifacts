@@ -90,6 +90,8 @@ D1 holds metadata; R2 holds file bytes.
 - `tokens(hash, owner, label, created_at, last_used, created_by)`.
 - `handoffs(…)`: single-use sign-in handoffs.
 - R2: `blob/<sha256>`, content-addressed, so a republish that changes one file copies nothing.
+- Share hub (section 7a): `wb_device_codes`, `wb_shares`, `wb_revisions`, `wb_requests` and
+  `settings` (migration 0003); R2 `wb/<share id>/<revision id>.json`.
 
 Migrations live in `migrations/` and are applied with `wrangler d1 migrations apply`.
 
@@ -143,8 +145,64 @@ nonce-based CSP (`src/csp.ts`).
 ## 7. CLI: `tack`
 
 `cli/tack` (bun). Environment: `TACK_URL` (the deployment's `APP_ORIGIN`), `TACK_TOKEN`.
-Commands: `publish`, `list`, `get`, `share`, `versions`, `comments`, `rename`, `delete`, `open`.
-Prints lines on a terminal and JSON when piped. Exit codes: 2 usage, 4 auth, 5 API.
+Commands: `publish`, `board`, `board-viewer`, `list`, `get`, `share`, `versions`, `comments`, `rename`, `delete`,
+`open`. Prints lines on a terminal and JSON when piped. Exit codes: 2 usage, 4 auth, 5 API.
+
+`board` publishes a Whiteboard snapshot (a `review-share/2` bundle, from a `.whiteboard` file or
+`whiteboard export --review <id>`) as an ordinary artifact; the Worker knows nothing about boards.
+The artifact holds `board.whiteboard`, the page in `cli/board-viewer/`, and the viewer:
+`@dev.fast/canvas` as published on npm plus React built as ES modules, both pinned in `cli/tack`
+and cached under `~/.cache/tack`. The page reads the snapshot from its own origin, so it fits the
+content policy in section 6 with no exception. It shows a download link for Whiteboard Desktop
+when the snapshot names a repository and quotes no uncommitted changes.
+
+`board-viewer` (admins) publishes that viewer with no board beside it and registers it as the
+one the share hub frames (section 7a).
+
+## 7a. Whiteboard share hub
+
+`src/whiteboard.ts` answers the share-service protocol of Whiteboard's client, read from
+`@dev.fast/whiteboard` 0.5.2, so stock Whiteboard uses a Tack server after
+`whiteboard login --origin <APP_ORIGIN>`. Errors on these routes are `{"error":{"code"}}`.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /api/auth/device/code` | anyone | starts a device login: device code, user code, `/device?user_code=` |
+| `GET, POST /device` | signed in | shows the user code; POST (same-origin) approves it |
+| `POST /api/auth/device/token` | device code | `authorization_pending` until approved, then `{access_token}` once |
+| `GET /api/auth/get-session` | bearer | `{user:{id, name, email}}`, all the person's email |
+| `GET /api/auth/token` | — | 404: tells the client to send its token as it is |
+| `POST /api/v2/shares` | publisher | `{requestId, bundle}` → `{shareId, url}` |
+| `GET /api/v2/shares` | bearer | `{items:[{shareId, reviewId, title, latestVersion, createdAt, url}], next?}` |
+| `GET /api/v2/shares/:id/link`, `/revisions`; `DELETE /api/v2/shares/:id` | owner | recover the link, list revisions, revoke |
+| `GET /api/v2/shared/:cap[?rev=]`, `/bundle` | anyone | who shared it and which revision; the snapshot |
+| `GET /s/:cap[?rev=]` | anyone | the page: title, sender, "Open in Whiteboard", the board framed |
+| `GET, PUT /api/whiteboard/viewer` | signed in; admin | which artifact holds the board viewer |
+
+Rules:
+
+- The token a device login yields is an ordinary API token labelled "Whiteboard login", listed
+  and revoked on the gallery page. Anyone who can sign in may log Whiteboard in (a recipient
+  needs it to open links in Desktop); only publishers may share.
+- Reads are anonymous: the client sends them without credentials and refuses redirects, so the
+  capability (32 random bytes, 43 base64url characters) is the only read control. Only its
+  SHA-256 is stored for look-ups, plus a copy encrypted under `SESSION_SECRET` so the owner can
+  recover the link. Changing `SESSION_SECRET` makes existing links unrecoverable for their owners.
+- One link per (owner, board). A bundle is accepted when it is a `review-share/2` object with the
+  parts every reader requires, at most 16 MiB; the reader validates the rest. A repeated
+  `requestId` answers as the first upload did. A higher `bundle.version` adds a revision; an
+  equal or lower one changes nothing.
+- Snapshots are stored in R2 at `wb/<share id>/<revision id>.json`. Revoking deletes the rows and
+  those objects; every read route then answers 404, the same as for an unknown capability.
+- The browser view gives each share its own content origin (`content_id`). Its grant borrows the
+  registered viewer artifact's files and serves that revision's snapshot as `board.whiteboard`,
+  so the page is the one `tack board` publishes. With no viewer registered, `/s/:cap` shows the
+  title and the "Open in Whiteboard" button only. A board that quotes uncommitted changes
+  (`frozen`) gets no button.
+- No rate limiting is implemented; use Cloudflare rules in front if the server is public.
+
+Not covered: Whiteboard's hosted trace store (`/api/trace/v1`), which a login to this server also
+points at; it answers 404.
 
 ## 8. Agent skill
 
@@ -175,7 +233,8 @@ Bindings: D1 `DB`, R2 `BLOBS`. Routes: the app and login hosts as custom domains
 
 ## 10. Tests
 
-- `bun test`: unit tests for authz, crypto, paths and the Access JWT check.
+- `bun test`: unit tests for authz, crypto, paths, the Access JWT check and the share hub's input checks.
 - `bun run smoke`: drives `wrangler dev` end to end through the CLI (publish, share in every
-  mode, pins, conflicts, comments, tokens, tenants).
+  mode, pins, conflicts, comments, tokens, tenants, boards) and sends the share hub the requests
+  Whiteboard's client sends (device login, upload, revisions, anonymous reads, revoke).
 - `bun run typecheck`.

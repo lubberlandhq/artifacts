@@ -5,13 +5,16 @@
 import { handleApi } from "./api";
 import { clearSessionCookie, currentUser, mintHandoff, redeemHandoff, safeNext, sessionCookie, verifyAccessJwt } from "./auth";
 import { canRead, orgPolicy, visibleVersion } from "./authz";
-import { contentIdFromHost, contentUrl, serveContent } from "./content";
+import { contentIdFromHost, contentOrigin, contentUrl, serveContent } from "./content";
 import type { Env } from "./env";
-import { devLoginPage, galleryPage, messagePage, viewerPage } from "./pages";
+import { devicePage, devLoginPage, galleryPage, messagePage, sharedBoardPage, viewerPage } from "./pages";
 import { getArtifact } from "./store";
+import { approveDevice, devicePending, handleWhiteboardApi, isWhiteboardApi, normalizeUserCode, resolveShared, sharedFrame } from "./whiteboard";
 
 const redirect = (location: string, cookie?: string) =>
   new Response(null, { status: 302, headers: { Location: location, "Cache-Control": "no-store", ...(cookie ? { "Set-Cookie": cookie } : {}) } });
+
+const withStatus = (r: Response, status: number) => new Response(r.body, { status, headers: r.headers });
 
 const devMode = (env: Env) => env.DEV_LOGIN === "1" && !env.APP_ORIGIN.startsWith("https:");
 
@@ -32,7 +35,30 @@ async function loginHost(req: Request, env: Env, url: URL): Promise<Response> {
 
 async function appHost(req: Request, env: Env, url: URL): Promise<Response> {
   const path = url.pathname;
+  if (isWhiteboardApi(path)) return handleWhiteboardApi(req, env, url);
   if (path.startsWith("/api/") || path === "/api") return handleApi(req, env, url);
+
+  // A shared Whiteboard board. No sign-in: the capability in the link is the access control.
+  const shared = path.match(/^\/s\/([^/]+)$/);
+  if (shared) {
+    const s = await resolveShared(env, shared[1], url.searchParams.get("rev"));
+    if (!s) return withStatus(messagePage(env, "Not found", "This share link is wrong or was revoked."), 404);
+    // Desktop takes the link apart again: dev-fast-review://share/<capability>?origin=&rev=.
+    // A board that quotes uncommitted changes is view only, so it gets no button.
+    const scheme = url.searchParams.get("app") === "preview" ? "dev-fast-review-preview" : "dev-fast-review";
+    const openHref = s.revision.frozen
+      ? null
+      : `${scheme}://share/${shared[1]}?origin=${encodeURIComponent(env.APP_ORIGIN)}&rev=${s.revision.id}`;
+    return sharedBoardPage(env, {
+      title: s.share.title,
+      sender: s.revision.sender,
+      sharedAt: s.revision.created_at,
+      version: s.revision.version,
+      frameSrc: await sharedFrame(env, s),
+      frameOrigin: contentOrigin(env, s.share.content_id),
+      openHref,
+    });
+  }
 
   if (path === "/login") {
     const next = safeNext(url.searchParams.get("next"));
@@ -57,6 +83,24 @@ async function appHost(req: Request, env: Env, url: URL): Promise<Response> {
   const email = user?.email ?? null;
 
   if (path === "/") return email ? galleryPage(env, email) : redirect(loginUrl(env, "/"));
+
+  // Whiteboard's device login: the person signed in here approves the code their computer shows.
+  if (path === "/device") {
+    if (!email) return redirect(loginUrl(env, path + url.search));
+    if (req.method === "POST") {
+      if (req.headers.get("Origin") !== env.APP_ORIGIN) return withStatus(messagePage(env, "Not approved", "That request came from another site."), 403);
+      const code = normalizeUserCode(String((await req.formData()).get("user_code") ?? ""));
+      return code && (await approveDevice(env, code, email))
+        ? messagePage(env, "Whiteboard is signed in", `It is signed in as ${email}. Go back to Whiteboard; this tab can be closed.`)
+        : messagePage(env, "Code not accepted", "That code is wrong, already used, or more than ten minutes old. Start the sign-in again from Whiteboard.");
+    }
+    const raw = url.searchParams.get("user_code");
+    if (raw === null) return devicePage(env, email, null);
+    const code = normalizeUserCode(raw);
+    return code && (await devicePending(env, code))
+      ? devicePage(env, email, code)
+      : messagePage(env, "Code not accepted", "That code is wrong, already used, or more than ten minutes old. Start the sign-in again from Whiteboard.");
+  }
 
   const m = path.match(/^\/a\/([a-z0-9]{20})\/?$/);
   if (m) {

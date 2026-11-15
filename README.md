@@ -74,7 +74,32 @@ Sign in at your app host, create a token on the gallery page, and:
 export TACK_URL=https://share.example.com TACK_TOKEN=tck_…
 bun cli/tack publish report.html --title "Q3 pipeline"    # new, private → prints the link
 bun cli/tack share <id> --mode public --pin current        # anyone with the link, frozen at this version
+bun cli/tack board <review-id>                             # a Whiteboard board as a read-only page
 ```
+
+`tack board` takes a review id from [Whiteboard](https://github.com/devdotfast/whiteboard) (it runs
+`whiteboard export`) or a `.whiteboard` file. The page is a snapshot drawn by Whiteboard's own
+viewer, `@dev.fast/canvas`, which the first run fetches from npm and publishes with the board.
+
+### Whiteboard's own share links
+
+Tack also answers the share-service protocol Whiteboard speaks, so `whiteboard share` and the
+Share button in Whiteboard Desktop upload to your server and return a link on it. An admin sets
+up the browser view once; each person points their Whiteboard at the server once:
+
+```bash
+bun cli/tack board-viewer                                  # admin, once per server (and to update the viewer)
+whiteboard login --origin https://share.example.com       # each computer, once: approve the code in the browser
+whiteboard share --review <review-id>                      # prints https://share.example.com/s/<key>
+```
+
+The link opens in a browser with no sign-in, and its "Open in Whiteboard" button opens an
+editable copy in Whiteboard Desktop on a computer logged in to the same server. Three things
+differ from the rest of Tack: **anyone holding the link can read the board** (the key in the link
+is the only control, because Whiteboard fetches links without credentials); a share is a frozen
+snapshot, and sharing a newer saved version adds a revision under the same link; and logging
+Whiteboard in to your server logs it out of dev.fast's. `whiteboard share revoke <share-id>`
+deletes a share and its snapshots.
 
 ## Agents
 

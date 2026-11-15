@@ -2,7 +2,7 @@
 // sign in, mint a CLI token, publish with tack, view through the shell and the content origin,
 // share each way, pin, comment, and check the refusals. Exit 1 on the first failed check.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -158,6 +158,103 @@ check("admin can share the tenant's page", (await api(nate, `/artifacts/${tpub.j
 tack(tok.token, "share", id, "--mode", "org");
 check("an org page stays closed to the tenant", tack(tenantTok.token, "get", id).code === 5);
 check("…and open to JJ", (await api(jj, `/artifacts/${id}`)).status === 200);
+
+// A Whiteboard board: the snapshot, the page that reads it, and the viewer (from npm on first run)
+const sample = join(import.meta.dir, "fixtures/sample.whiteboard");
+const board = tack(tok.token, "board", sample);
+check("tack board publishes a snapshot", board.code === 0 && board.json?.title === "Sample board", JSON.stringify(board.json));
+if (board.code === 0) {
+  const bf = await (await api(nate, `/artifacts/${board.json.id}/frame`)).json();
+  check("board page maps the viewer to its own files", (await (await content(bf.src)).text()).includes('"@dev.fast/canvas": "./canvas/index.js"'));
+  check("board snapshot is served as published", (await (await content(bf.src + "board.whiteboard")).text()) === readFileSync(sample, "utf8"));
+  for (const f of ["main.js", "canvas/index.js", "canvas/assets/canvas.css", "vendor/react.js", "vendor/react-dom-client.js"])
+    check(`board serves ${f}`, (await content(bf.src + f)).status === 200);
+  check("board version is labelled with the board's version", tack(tok.token, "versions", board.json.id).json[0].label === "board v1");
+  tack(tok.token, "delete", board.json.id, "--yes");
+}
+check("a file that is not a snapshot exits 2", tack(tok.token, "board", join(dir, "index.html")).code === 2);
+
+// Whiteboard share hub: Tack answers the share-service protocol that `whiteboard login --origin`
+// and `whiteboard share` speak. These are the requests that client sends, in its order.
+const wb = (path: string, init: RequestInit = {}) => fetch(`${APP}${path}`, init);
+const wbJson = (path: string, body: unknown, token?: string) =>
+  wb(path, { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+const errCode = async (r: Response) => ((await r.json()) as any)?.error?.code;
+async function deviceLogin(cookie: string): Promise<string> {
+  const d: any = await (await wbJson("/api/auth/device/code", { client_id: "review-cli", scope: "identity" })).json();
+  const poll = () => wbJson("/api/auth/device/token", { grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: d.device_code, client_id: "review-cli" });
+  const pending = await poll();
+  check("device login waits for approval", pending.status === 400 && ((await pending.json()) as any).error === "authorization_pending");
+  check("the approval page needs a sign-in", (await wb(`/device?user_code=${d.user_code}`, { redirect: "manual" })).status === 302);
+  check("the approval page shows the code", (await (await wb(`/device?user_code=${d.user_code}`, { headers: { Cookie: cookie } })).text()).includes(d.user_code));
+  const approve = (origin: string) =>
+    wb("/device", { method: "POST", headers: { Cookie: cookie, Origin: origin }, body: new URLSearchParams({ user_code: d.user_code }) });
+  check("another site can't approve", (await approve("http://evil.example")).status === 403);
+  check("the signed-in person approves", (await (await approve(APP)).text()).includes("Whiteboard is signed in"));
+  check("a code is approved once", (await (await approve(APP)).text()).includes("Code not accepted"));
+  const got: any = await (await poll()).json();
+  check("the next poll returns a token", typeof got.access_token === "string" && got.access_token.startsWith("tck_"));
+  check("the device code is spent", ((await (await poll()).json()) as any).error === "expired_token");
+  return got.access_token;
+}
+const wbTok = await deviceLogin(nate);
+const session: any = await (await wb("/api/auth/get-session", { headers: { Authorization: `Bearer ${wbTok}` } })).json();
+check("the token names its person", session.user?.name === "nate@dev.test" && session.user?.id === "nate@dev.test");
+check("no JWT exchange: the client sends its token as it is", (await wb("/api/auth/token", { headers: { Authorization: `Bearer ${wbTok}` } })).status === 404);
+const anonShares = await wb("/api/v2/shares");
+check("the share API needs a login", anonShares.status === 401 && (await errCode(anonShares)) === "login_required");
+
+const bundle = JSON.parse(readFileSync(sample, "utf8"));
+const requestId = crypto.randomUUID();
+const first: any = await (await wbJson("/api/v2/shares", { requestId, bundle }, wbTok)).json();
+const cap: string = String(first.url ?? "").split("/s/")[1] ?? "";
+check("sharing returns a share id and a capability link", /^[0-9a-f-]{36}$/.test(first.shareId) && /^[A-Za-z0-9_-]{43}$/.test(cap) && Object.keys(first).length === 2, JSON.stringify(first));
+check("a retried upload answers the same", JSON.stringify(await (await wbJson("/api/v2/shares", { requestId, bundle }, wbTok)).json()) === JSON.stringify(first));
+check("the same version again changes nothing", ((await (await wbJson("/api/v2/shares", { requestId: crypto.randomUUID(), bundle }, wbTok)).json()) as any).url === first.url);
+const second: any = await (await wbJson("/api/v2/shares", { requestId: crypto.randomUUID(), bundle: { ...bundle, version: bundle.version + 1, title: "Sample board, edited" } }, wbTok)).json();
+check("a newer version keeps the link", second.url === first.url && second.shareId === first.shareId);
+const auth = { headers: { Authorization: `Bearer ${wbTok}` } };
+const revs: any = await (await wb(`/api/v2/shares/${first.shareId}/revisions`, auth)).json();
+check("…and adds a revision, newest first", revs.items?.length === 2 && revs.items[0].version === bundle.version + 1 && revs.latest === revs.items[0].id, JSON.stringify(revs));
+check("the owner recovers the link", ((await (await wb(`/api/v2/shares/${first.shareId}/link`, auth)).json()) as any).url === first.url);
+const listed: any = await (await wb("/api/v2/shares", auth)).json();
+check("the owner lists their shares", listed.items?.some((i: any) => i.shareId === first.shareId && i.latestVersion === bundle.version + 1));
+
+const meta = await wb(`/api/v2/shared/${cap}`);
+const metaJson: any = await meta.json();
+check("anyone with the link reads who shared it", meta.status === 200 && metaJson.sender?.login === "nate@dev.test" && Object.keys(metaJson.sender).length === 1 && metaJson.latest === revs.latest);
+check("reads are uncached and unindexed", meta.headers.get("cache-control") === "private, no-store" && meta.headers.get("x-robots-tag") === "noindex");
+const latestBundle: any = await (await wb(`/api/v2/shared/${cap}/bundle`)).json();
+check("…and the newest snapshot", latestBundle.title === "Sample board, edited" && latestBundle.format === "review-share/2");
+const oldBundle = await (await wb(`/api/v2/shared/${cap}/bundle?rev=${revs.items[1].id}`)).text();
+check("an older revision is still readable by id", oldBundle === JSON.stringify(bundle));
+const unknown = await wb(`/api/v2/shared/${"A".repeat(43)}`);
+check("an unknown link is 404 not_found", unknown.status === 404 && (await errCode(unknown)) === "not_found");
+check("an unknown revision is 404", (await wb(`/api/v2/shared/${cap}?rev=${crypto.randomUUID()}`)).status === 404);
+check("something that is not a snapshot is refused", (await wbJson("/api/v2/shares", { requestId: crypto.randomUUID(), bundle: { ...bundle, format: "review-share/1" } }, wbTok)).status === 400);
+const outsider = await deviceLogin(client);
+check("anyone signed in can log Whiteboard in, but only publishers share", (await wbJson("/api/v2/shares", { requestId: crypto.randomUUID(), bundle }, outsider)).status === 403);
+check("…and they can't touch someone else's share", (await wb(`/api/v2/shares/${first.shareId}`, { method: "DELETE", headers: { Authorization: `Bearer ${outsider}` } })).status === 404);
+
+// The page a person opens: nothing to frame until an admin registers the viewer, then the board.
+const sharePage = () => wb(`/s/${cap}`);
+const bare = await sharePage();
+const bareHtml = await bare.text();
+check("the share page opens without a sign-in", bare.status === 200 && bareHtml.includes("Shared by nate@dev.test") && bare.headers.get("x-robots-tag") === "noindex");
+check("…with a link that opens it in Whiteboard", bareHtml.includes(`dev-fast-review://share/${cap}?origin=${encodeURIComponent(APP)}&amp;rev=${revs.latest}`));
+check("a non-admin can't register the viewer", tack(tenantTok.token, "board-viewer").code === 4);
+const viewer = tack(tok.token, "board-viewer");
+check("an admin registers the board viewer", viewer.code === 0 && viewer.json?.registered === true, JSON.stringify(viewer.json));
+const frameSrc = (await (await sharePage()).text()).match(/<iframe src="([^"]+)"/)?.[1] ?? "";
+check("the share page frames the board from its own origin", frameSrc.includes(`.localhost:${port}/t/`) && !frameSrc.includes(viewer.json?.id));
+check("the frame serves the viewer", (await content(frameSrc + "main.js")).status === 200 && (await (await content(frameSrc)).text()).includes("@dev.fast/canvas"));
+check("…and this share's snapshot", ((await (await content(frameSrc + "board.whiteboard")).json()) as any).title === "Sample board, edited");
+
+const revoked: any = await (await wb(`/api/v2/shares/${first.shareId}`, { method: "DELETE", ...auth })).json();
+check("the owner revokes", revoked.revoked === true && revoked.shareId === first.shareId);
+check("a revoked link is 404 everywhere", (await wb(`/api/v2/shared/${cap}`)).status === 404 && (await wb(`/api/v2/shared/${cap}/bundle`)).status === 404 && (await sharePage()).status === 404);
+check("…including a frame handed out before the revoke", (await content(frameSrc + "board.whiteboard")).status === 404);
+if (viewer.code === 0) tack(tok.token, "delete", viewer.json.id, "--yes");
 
 // Delete
 check("delete needs --yes", tack(tok.token, "delete", id).code === 2);

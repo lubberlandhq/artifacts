@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { canAdmin, canPublish, canRead, canWrite, isAdmin, orgPolicy, parseEmails, visibleVersion } from "../src/authz";
-import { randomId, seal, unseal } from "../src/crypto";
+import { decryptText, encryptText, randomId, seal, unseal } from "../src/crypto";
 import { contentCsp } from "../src/csp";
 import type { Artifact } from "../src/env";
 import { validPath } from "../src/store";
+import { bundleProblem, normalizeUserCode } from "../src/whiteboard";
 
 const policy = orgPolicy({ ORG_EMAILS: "jj@x.com", ORG_DOMAINS: "example.com", PUBLISHERS: "" });
 const art = (over: Partial<Artifact> = {}): Artifact => ({
@@ -80,6 +81,44 @@ describe("crypto", () => {
     expect(await unseal("other", "content", t)).toBeNull();
     expect(await unseal("s", "content", t.slice(0, -2) + "AA")).toBeNull();
     expect(await unseal("s", "content", await seal("s", "content", {}, -1))).toBeNull();
+  });
+});
+
+describe("whiteboard hub", () => {
+  // protects: a share link stays recoverable only with the server secret. fails_when: the sealed
+  // capability opens under another purpose or secret, or is stored readable. no_claim: key rotation.
+  test("a sealed capability opens only with its secret and purpose", async () => {
+    const cap = "x9wBwK7gRrER63g3fEi181kMS4YH5CbOsP0HuqASvZ8";
+    const sealed = await encryptText("s", "wb-capability", cap);
+    expect(sealed).not.toContain(cap);
+    expect(await decryptText("s", "wb-capability", sealed)).toBe(cap);
+    expect(await decryptText("other", "wb-capability", sealed)).toBeNull();
+    expect(await decryptText("s", "session", sealed)).toBeNull();
+    expect(await decryptText("s", "wb-capability", "not-a-sealed-value")).toBeNull();
+    expect(await encryptText("s", "wb-capability", cap)).not.toBe(sealed);
+  });
+  // protects: a person can type the code as Whiteboard prints it or loosely. fails_when: a
+  // mistyped length is accepted. no_claim: whether the code exists.
+  test("user codes are read however they are typed", () => {
+    expect(normalizeUserCode("4hq4-g5u6")).toBe("4HQ4-G5U6");
+    expect(normalizeUserCode(" 4HQ4 G5U6 ")).toBe("4HQ4-G5U6");
+    expect(normalizeUserCode("4HQ4G5U")).toBeNull();
+    expect(normalizeUserCode(null)).toBeNull();
+  });
+  // protects: only review-share/2 snapshots are stored. fails_when: another format, a missing
+  // required part or a bad version passes. no_claim: the document inside `snapshot` is valid;
+  // the reader checks that.
+  test("only a review-share/2 snapshot is accepted", () => {
+    const ok = { format: "review-share/2", reviewId: "r", version: 0, title: "", snapshot: {}, images: {}, traces: {}, maps: {}, commits: [], selections: {}, sources: [] };
+    expect(bundleProblem(ok)).toBeNull();
+    expect(bundleProblem({ ...ok, extra: 1, frozen: true })).toBeNull();
+    expect(bundleProblem({ ...ok, format: "review-share/1" })).not.toBeNull();
+    expect(bundleProblem({ ...ok, reviewId: "" })).not.toBeNull();
+    expect(bundleProblem({ ...ok, version: -1 })).not.toBeNull();
+    expect(bundleProblem({ ...ok, version: 1.5 })).not.toBeNull();
+    expect(bundleProblem({ ...ok, snapshot: [] })).not.toBeNull();
+    expect(bundleProblem({ ...ok, sources: {} })).not.toBeNull();
+    expect(bundleProblem(null)).not.toBeNull();
   });
 });
 

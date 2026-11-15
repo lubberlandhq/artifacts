@@ -45,6 +45,32 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
   ]);
 }
 
+// Reversible encryption for a value the service must hand back later (a share link's capability).
+// AES-GCM under a key derived from the secret and the purpose; output is base64url(iv || ciphertext).
+async function aesKey(secret: string, purpose: string): Promise<CryptoKey> {
+  const raw = await crypto.subtle.digest("SHA-256", enc.encode(`${purpose}\n${secret}`));
+  return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+export async function encryptText(secret: string, purpose: string, text: string): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await aesKey(secret, purpose), enc.encode(text)));
+  const out = new Uint8Array(iv.length + ct.length);
+  out.set(iv);
+  out.set(ct, iv.length);
+  return b64url(out);
+}
+
+export async function decryptText(secret: string, purpose: string, sealed: string): Promise<string | null> {
+  try {
+    const raw = unb64url(sealed);
+    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.slice(0, 12) }, await aesKey(secret, purpose), raw.slice(12));
+    return dec.decode(pt);
+  } catch {
+    return null;
+  }
+}
+
 // A signed, expiring JSON envelope: base64url(payload).base64url(hmac). `purpose` is mixed into
 // the MAC so a token minted for one use (a content-frame grant) is never accepted for another
 // (a session).

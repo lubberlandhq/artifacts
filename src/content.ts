@@ -15,8 +15,15 @@ export function contentOrigin(env: Env, id: string): string {
   return `${env.CONTENT_SCHEME}://${id}.${env.CONTENT_DOMAIN}`;
 }
 
-export async function contentUrl(env: Env, id: string, ver: number): Promise<string> {
-  const grant = await seal(env.SESSION_SECRET, "content", { a: id, v: ver }, GRANT_TTL);
+// A Whiteboard share (src/whiteboard.ts) has an origin of its own but no files: its grant borrows
+// the viewer artifact's files (`m`) and serves one stored snapshot (`b`) as board.whiteboard.
+export interface BoardSource {
+  manifest: string; // the viewer artifact's id
+  board: string; // R2 key of the snapshot
+}
+
+export async function contentUrl(env: Env, id: string, ver: number, from?: BoardSource): Promise<string> {
+  const grant = await seal(env.SESSION_SECRET, "content", { a: id, v: ver, ...(from ? { m: from.manifest, b: from.board } : {}) }, GRANT_TTL);
   return `${contentOrigin(env, id)}/t/${grant}/`;
 }
 
@@ -27,6 +34,8 @@ export function contentIdFromHost(env: Env, host: string): string | null {
   return /^[a-z0-9]{20}$/.test(label) ? label : null;
 }
 
+export const BOARD_FILE = "board.whiteboard";
+
 const notFound = () => new Response("Not found", { status: 404, headers: SECURITY_HEADERS });
 
 export async function serveContent(req: Request, env: Env, id: string): Promise<Response> {
@@ -34,7 +43,7 @@ export async function serveContent(req: Request, env: Env, id: string): Promise<
   const url = new URL(req.url);
   const m = url.pathname.match(/^\/t\/([^/]+)\/(.*)$/);
   if (!m) return notFound();
-  const grant = await unseal<{ a: string; v: number }>(env.SESSION_SECRET, "content", m[1]);
+  const grant = await unseal<{ a: string; v: number; m?: string; b?: string }>(env.SESSION_SECRET, "content", m[1]);
   if (!grant || grant.a !== id) return notFound();
 
   let path: string;
@@ -45,7 +54,9 @@ export async function serveContent(req: Request, env: Env, id: string): Promise<
   }
   if (path === "" || path.endsWith("/")) path += "index.html";
 
-  const manifest = await getManifest(env, id, grant.v);
+  if (grant.b && path === BOARD_FILE) return serveBoard(req, env, grant.b);
+
+  const manifest = await getManifest(env, grant.m ?? id, grant.v);
   const entry = manifest?.[path];
   if (!entry) return notFound();
 
@@ -66,4 +77,21 @@ export async function serveContent(req: Request, env: Env, id: string): Promise<
   if (!obj) return notFound();
   headers.set("Content-Length", String(entry.size));
   return new Response(req.method === "HEAD" ? null : obj.body, { headers });
+}
+
+// The snapshot behind a share's page. It is gone the moment the share is revoked, whatever the
+// grant's remaining lifetime.
+async function serveBoard(req: Request, env: Env, key: string): Promise<Response> {
+  const obj = await env.BLOBS.get(key);
+  if (!obj) return notFound();
+  return new Response(req.method === "HEAD" ? null : obj.body, {
+    headers: {
+      ...SECURITY_HEADERS,
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Security-Policy": contentCsp(env.APP_ORIGIN),
+      "Content-Length": String(obj.size),
+      "Cache-Control": "private, no-store",
+      "Cross-Origin-Resource-Policy": "same-site",
+    },
+  });
 }
