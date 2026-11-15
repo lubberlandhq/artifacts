@@ -22,6 +22,10 @@ nothing above.
 
 Status: ☐ not started · ◐ in progress · ☑ done
 
+Whiteboard sharing (2026-11-14) landed outside this list; what it left open is in
+[whiteboard-follow-ups.md](whiteboard-follow-ups.md). It took migrations `0003` through `0006`,
+so the schema files planned below as `0003` and `0004` start at `0007`.
+
 ---
 
 ## 0. Extract into this repo ☑ (2026-10-24)
