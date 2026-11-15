@@ -33,8 +33,8 @@ private values in it or its history.
 
 ```
 src/  migrations/  test/  package.json  tsconfig.json  wrangler.example.jsonc  wrangler.dev.jsonc
-cli/lshare
-skills/share/SKILL.md
+cli/tack
+skills/tack/SKILL.md
 docs/SPEC.md  docs/ROADMAP.md  docs/claude-artifacts-evidence.md
 README.md  LICENSE
 ```
@@ -49,12 +49,12 @@ README.md  LICENSE
   no Cloudflare account. wrangler is a pinned dev dependency.
 - New variable `ORG_NAME` replaces the hard-coded org label in the UI (`src/authz.ts`
   `describeMode`, gallery and share dialog copy).
-- The CLI keeps the name `lshare`. `LSHARE_URL` is required (no built-in default host); a
+- The CLI is `tack` (named `lshare` until 2026-11-14, when the service was named Tack). `TACK_URL` is required (no built-in default host); a
   missing value exits 2 with a message naming the variable.
-- The skill is generic: it names `LSHARE_URL` and `LSHARE_TOKEN` and says "confirm the
+- The skill is generic: it names `TACK_URL` and `TACK_TOKEN` and says "confirm the
   audience with the person". How a given machine resolves the token is that deployment's
   business, documented where its agents already look.
-- The smoke test runs `cli/lshare` from this repo by default (`LSHARE_BIN` still overrides).
+- The smoke test runs `cli/tack` from this repo by default (`TACK_BIN` still overrides).
 
 **Acceptance criteria.**
 
@@ -64,7 +64,7 @@ README.md  LICENSE
    only a `.dev.vars` from the README (smoke against `bun run dev`).
 3. The UI shows `ORG_NAME` wherever it showed the org label; `grep -ri lubberland src cli skills`
    prints nothing.
-4. `lshare list` with `LSHARE_URL` unset exits 2 and names the variable.
+4. `tack list` with `TACK_URL` unset exits 2 and names the variable.
 5. A deployment built from this repo serves the same artifacts as before (same D1, same R2):
    an artifact published before the move opens at the same link, at the same version.
 
@@ -119,7 +119,7 @@ UPDATE artifacts SET comment_users = read_users, read_users = '[]', mode_role = 
 - `GET /artifacts/:id/comments` returns 403 to viewers.
 - `POST /artifacts/:id/comments` returns 403 to viewers.
 - New `DELETE /artifacts/:id/comments/:cid`: the author, editors, owner, admins.
-- `lshare share <id> --commenters a@x,b@y --link-role view|comment`.
+- `tack share <id> --commenters a@x,b@y --link-role view|comment`.
 
 **UI.** The share dialog lists people with a role picker (Viewer / Commenter / Editor) and the
 general-access row gets a role picker for `org` and `public`. The Comments button is hidden for
@@ -190,7 +190,7 @@ ALTER TABLE comments ADD COLUMN anchor TEXT; -- JSON TextQuoteSelector, NULL = p
 
 **API.** `POST /artifacts/:id/comments` accepts `anchor`; `GET` returns it. Validation: object
 with string `exact` (1–1000), optional `prefix`/`suffix` (≤ 32), optional non-negative integer
-`start` ≤ `end`; anything else is 400. `lshare comments` prints the quote above each anchored
+`start` ≤ `end`; anything else is 400. `tack comments` prints the quote above each anchored
 comment.
 
 **Acceptance criteria.**
@@ -328,7 +328,7 @@ This would replace `read_users`, `comment_users` and `write_users`.
   their own grants), with an option to scroll them together.
 - Above the frames, the file list: added, removed, changed (by `sha256`), with sizes.
 - For changed text files under 200 KB, a line diff of the source.
-- `lshare diff <id> <a> <b>` prints the file list and, with `--source`, the text diffs.
+- `tack diff <id> <a> <b>` prints the file list and, with `--source`, the text diffs.
 
 **Acceptance criteria.**
 
@@ -343,7 +343,7 @@ This would replace `read_users`, `comment_users` and `write_users`.
 
 ## 7. Pluggable backends per content type ☐ (future; not designed)
 
-**Idea.** `lshare publish` picks a backend by content type instead of always hosting the page
+**Idea.** `tack publish` picks a backend by content type instead of always hosting the page
 itself. The motivating case: documents people read and mark up (reports, proposals, memos) go to
 Google Drive as a Google Doc or PDF, where commenting, anchoring, notifications and revision
 history already exist; interactive pages stay on this Worker.

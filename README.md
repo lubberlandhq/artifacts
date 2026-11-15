@@ -18,8 +18,8 @@ version or stay on a pinned one. Signed-in viewers can comment.
 |---|---|
 | `src/` | the Worker: app shell, API, sign-in, content serving |
 | `migrations/` | D1 schema |
-| `cli/lshare` | the CLI (bun) for people and agents |
-| `skills/share/SKILL.md` | an agent skill (Claude Code, Codex) for publishing with `lshare` |
+| `cli/tack` | the CLI (bun) for people and agents |
+| `skills/tack/SKILL.md` | an agent skill (Claude Code, Codex) for publishing with `tack` |
 
 Each artifact is served from its own origin, `<id>.<CONTENT_DOMAIN>`, on a domain apart from the
 app, so a page's scripts can't read the app's cookies, call its API as the viewer, or touch another
@@ -36,7 +36,7 @@ bun install
 printf 'DEV_LOGIN=1\nSESSION_SECRET=%s\n' "$(openssl rand -hex 32)" > .dev.vars
 bun run dev            # local D1 + R2, wrangler dev on :8787 (artifacts on <id>.localhost:8787)
 bun run test           # unit: authz, grants, paths, CSP, Access JWT
-bun run smoke          # end-to-end against the dev server through cli/lshare
+bun run smoke          # end-to-end against the dev server through cli/tack
 bun run typecheck
 ```
 
@@ -71,15 +71,15 @@ config and copy it in before deploying.
 Sign in at your app host, create a token on the gallery page, and:
 
 ```bash
-export LSHARE_URL=https://share.example.com LSHARE_TOKEN=lsh_…
-bun cli/lshare publish report.html --title "Q3 pipeline"    # new, private → prints the link
-bun cli/lshare share <id> --mode public --pin current        # anyone with the link, frozen at this version
+export TACK_URL=https://share.example.com TACK_TOKEN=tck_…
+bun cli/tack publish report.html --title "Q3 pipeline"    # new, private → prints the link
+bun cli/tack share <id> --mode public --pin current        # anyone with the link, frozen at this version
 ```
 
 ## Agents
 
-Install the skill by linking `skills/share` into your agent's skills directory (for Claude Code,
-`~/.claude/skills/share`) and putting `cli/lshare` on `PATH`. Give agents their own identity: add
+Install the skill by linking `skills/tack` into your agent's skills directory (for Claude Code,
+`~/.claude/skills/tack`) and putting `cli/tack` on `PATH`. Give agents their own identity: add
 an agent email to `PUBLISHERS`, and an admin mints its token on the gallery page with "publish as".
 That token sees only the agent's own pages; admins can still open and re-share them.
 

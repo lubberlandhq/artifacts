@@ -24,7 +24,8 @@ input[type=text],input[type=email],textarea{width:100%;border:1px solid var(--li
 .bar .title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .bar .grow{flex:1;min-width:0;display:flex;flex-direction:column}
 .bar .sub{font-size:12px}
-.brand{font-weight:700;text-decoration:none;color:var(--ink);letter-spacing:-.01em}
+.brand{font-weight:700;text-decoration:none;color:var(--ink);letter-spacing:-.01em;display:inline-flex;align-items:center;gap:7px}
+.brand svg{width:20px;height:20px;flex:none}.mk-s{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.mk-a{fill:var(--accent)}
 .dialog{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:flex-start;justify-content:center;padding:60px 16px;z-index:10}
 .dialog.open{display:flex}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);width:100%;max-width:480px;padding:20px}
@@ -38,12 +39,22 @@ input[type=text],input[type=email],textarea{width:100%;border:1px solid var(--li
 @media (max-width:640px){.hide-sm{display:none}.bar{flex-wrap:wrap;gap:6px;padding:8px 12px}.bar .grow{flex-basis:100%}.bar button{padding:5px 10px;font-size:13px}}
 `;
 
+// The Tack mark: a plain sheet hanging at a tilt from one tack. The pin sits inside the sheet, not on
+// its top edge, and there are no text lines, so it doesn't read as a clipboard at small sizes. Drawn on a 24px grid so it reads at favicon size.
+const MARK_SHAPES = `<rect class="mk-s" x="5" y="3.5" width="14" height="17.5" rx="1.8" transform="rotate(9 12 8)"/><circle class="mk-a" cx="12" cy="8" r="2.9"/>`;
+const MARK = `<svg viewBox="0 0 24 24" aria-hidden="true">${MARK_SHAPES}</svg>`;
+// The favicon can't see the page's tokens, so it carries both palettes itself.
+const FAVICON = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><style>.mk-s{fill:none;stroke:#1d1c1a;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.mk-a{fill:#2f5d50}@media (prefers-color-scheme:dark){.mk-s{stroke:#ecebe8}.mk-a{fill:#7fbfa9}}</style>${MARK_SHAPES}</svg>`,
+)}`;
+
 function page(env: Env, opts: { title: string; body: string; script?: string; frameOrigin?: string | null }) {
   const nonce = randomToken(16);
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(opts.title)}</title>
+<link rel="icon" type="image/svg+xml" href="${FAVICON}">
 <style nonce="${nonce}">${STYLE}</style></head><body>${opts.body}
 ${opts.script ? `<script nonce="${nonce}">${opts.script}</script>` : ""}</body></html>`;
   return new Response(html, {
@@ -73,7 +84,7 @@ export function viewerPage(env: Env, a: Artifact, email: string | null, version:
   const body = `
 <div style="display:flex;flex-direction:column;height:100%">
   <div class="bar">
-    <a class="brand hide-sm" href="/">share</a>
+    <a class="brand hide-sm" href="/">${MARK}tack</a>
     <div class="grow"><span class="title">${esc(a.title)}</span>
       <span class="sub muted">${esc(a.owner)} · <span id="ver">v${version}</span>${editor ? ` · <span class="chip">${esc(describeMode(a.read_mode, env.ORG_NAME))}</span>` : ""}</span></div>
     <button id="commentsBtn" title="Comments">Comments</button>
@@ -154,7 +165,7 @@ $('#shareSave').addEventListener('click',async()=>{const mode=document.querySele
 export function galleryPage(env: Env, email: string) {
   const admin = isAdmin(orgPolicy(env), email);
   const body = `
-<div class="bar"><span class="brand">share</span><span class="grow"></span><span class="muted hide-sm">${esc(email)}</span><a href="/logout"><button>Sign out</button></a></div>
+<div class="bar"><span class="brand">${MARK}tack</span><span class="grow"></span><span class="muted hide-sm">${esc(email)}</span><a href="/logout"><button>Sign out</button></a></div>
 <main style="max-width:960px;margin:0 auto;padding:20px 16px">
   <section id="drop" style="border:2px dashed var(--line);border-radius:14px;padding:22px;text-align:center;background:var(--panel)">
     <b>Publish a page</b>
@@ -169,7 +180,7 @@ export function galleryPage(env: Env, email: string) {
   <h3 style="margin:24px 0 8px">Yours and shared with you</h3>
   <div id="list" class="muted">Loading…</div>
   <h3 style="margin:28px 0 8px">Tokens for the CLI and agents</h3>
-  <p class="muted" style="margin-top:0">For <code>lshare</code> on the mini or the laptop. A token publishes as you.</p>
+  <p class="muted" style="margin-top:0">For <code>tack</code> on the mini or the laptop. A token publishes as you.</p>
   <div class="row" style="max-width:640px;flex-wrap:wrap"><input id="tlabel" type="text" placeholder="label, e.g. agents" style="max-width:240px">${
     admin ? `<input id="tas" type="email" placeholder="publish as (blank = you)" style="max-width:280px">` : ""
   }<button id="tnew">Create</button></div>
@@ -188,11 +199,11 @@ $('#file').addEventListener('change',e=>publish([...e.target.files]));$('#dir').
 const drop=$('#drop');drop.addEventListener('dragover',e=>{e.preventDefault();drop.style.borderColor='var(--accent)'});drop.addEventListener('dragleave',()=>drop.style.borderColor='');
 drop.addEventListener('drop',e=>{e.preventDefault();drop.style.borderColor='';const fs=[...e.dataTransfer.files].filter(f=>/\\.html?$/i.test(f.name));if(fs.length!==1){$('#pubErr').textContent='Drop one .html file, or use Choose folder for a multi-file page.';return}publish(fs)});
 async function tokens(){const {tokens}=await api('/tokens');$('#tlist').innerHTML=tokens.map(t=>'<div class="row" style="padding:4px 0"><code>'+t.id+'</code><span style="flex:1">'+esc(t.label)+(t.owner!==ME?' <span class="chip">as '+esc(t.owner)+'</span>':'')+' <span class="muted">· last used '+(t.last_used?new Date(t.last_used).toLocaleString():'never')+'</span></span><button data-revoke="'+t.id+'">Revoke</button></div>').join('')}
-$('#tnew').addEventListener('click',async()=>{try{const r=await api('/tokens',{method:'POST',body:JSON.stringify({label:$('#tlabel').value,as:($('#tas')?.value||'').trim()||undefined})});$('#tshow').style.display='block';$('#tshow').textContent='Shown once. Store it in 1Password, then set LSHARE_TOKEN:\\n'+r.token;tokens()}catch(x){toast(x.message)}});
+$('#tnew').addEventListener('click',async()=>{try{const r=await api('/tokens',{method:'POST',body:JSON.stringify({label:$('#tlabel').value,as:($('#tas')?.value||'').trim()||undefined})});$('#tshow').style.display='block';$('#tshow').textContent='Shown once. Store it in 1Password, then set TACK_TOKEN:\\n'+r.token;tokens()}catch(x){toast(x.message)}});
 $('#tlist').addEventListener('click',async e=>{const id=e.target.dataset?.revoke;if(!id)return;await api('/tokens/'+id,{method:'DELETE'});tokens()});
 load();tokens();`;
 
-  return page(env, { title: "share", body, script });
+  return page(env, { title: "Tack", body, script });
 }
 
 export function messagePage(env: Env, title: string, message: string, action?: { href: string; label: string }) {
