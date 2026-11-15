@@ -26,6 +26,8 @@ export interface Env {
 
   SESSION_SECRET: string; // wrangler secret
   DEV_LOGIN?: string; // "1" only in .dev.vars: a pick-your-email login for wrangler dev
+  // Days a Whiteboard login lasts before the person signs in again (src/whiteboard.ts). Unset = 90.
+  WHITEBOARD_LOGIN_DAYS?: string;
 }
 
 export type Mode = "owner" | "users" | "org" | "public";

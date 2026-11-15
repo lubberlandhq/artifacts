@@ -4,7 +4,7 @@ import { decryptText, encryptText, randomId, seal, unseal } from "../src/crypto"
 import { contentCsp } from "../src/csp";
 import type { Artifact } from "../src/env";
 import { validPath } from "../src/store";
-import { bundleProblem, normalizeUserCode } from "../src/whiteboard";
+import { bundleProblem, loginTtlSeconds, normalizeUserCode } from "../src/whiteboard";
 
 const policy = orgPolicy({ ORG_EMAILS: "jj@x.com", ORG_DOMAINS: "example.com", PUBLISHERS: "" });
 const art = (over: Partial<Artifact> = {}): Artifact => ({
@@ -104,6 +104,16 @@ describe("whiteboard hub", () => {
     expect(normalizeUserCode(" 4HQ4 G5U6 ")).toBe("4HQ4-G5U6");
     expect(normalizeUserCode("4HQ4G5U")).toBeNull();
     expect(normalizeUserCode(null)).toBeNull();
+  });
+  // protects: a Whiteboard login lasts the configured number of days, 90 by default. fails_when:
+  // a bad setting gives a token that expires at once or never. no_claim: that an expired token is
+  // refused (checked by hand against the dev server; the smoke lane has no clock).
+  test("the login lifetime is WHITEBOARD_LOGIN_DAYS, else 90 days", () => {
+    const day = 24 * 3600;
+    expect(loginTtlSeconds({})).toBe(90 * day);
+    expect(loginTtlSeconds({ WHITEBOARD_LOGIN_DAYS: "30" })).toBe(30 * day);
+    expect(loginTtlSeconds({ WHITEBOARD_LOGIN_DAYS: " 0.5 " })).toBe(day / 2);
+    for (const bad of ["", "0", "-7", "soon", "Infinity"]) expect(loginTtlSeconds({ WHITEBOARD_LOGIN_DAYS: bad })).toBe(90 * day);
   });
   // protects: only review-share/2 snapshots are stored. fails_when: another format, a missing
   // required part or a bad version passes. no_claim: the document inside `snapshot` is valid;

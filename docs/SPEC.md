@@ -153,8 +153,10 @@ Commands: `publish`, `board`, `board-viewer`, `list`, `get`, `share`, `versions`
 `board` publishes a Whiteboard snapshot (a `review-share/2` bundle, from a `.whiteboard` file or
 `whiteboard export --review <id>`) as an ordinary artifact; the Worker knows nothing about boards.
 The artifact holds `board.whiteboard`, the page in `cli/board-viewer/`, and the viewer:
-`@dev.fast/canvas` as published on npm plus React built as ES modules, both pinned in `cli/tack`
-and cached under `~/.cache/tack`. The page reads the snapshot from its own origin, so it fits the
+`@dev.fast/canvas` as published on npm plus React built as ES modules. Their versions, and every
+package they depend on, are pinned with integrity hashes in `cli/board-viewer-build/bun.lock`; the
+CLI installs from it frozen, so a package that does not match the lock fails the build. The
+build is cached under `~/.cache/tack`, one folder per lockfile. The page reads the snapshot from its own origin, so it fits the
 content policy in section 6 with no exception. It shows a download link for Whiteboard Desktop
 when the snapshot names a repository and quotes no uncommitted changes.
 
@@ -185,8 +187,8 @@ one the share hub frames (section 7a).
 Rules:
 
 - The token a device login yields is labelled "Whiteboard login", listed and revoked on the
-  gallery page, expires after 90 days (`tokens.expires_at`, migration 0005; Whiteboard then asks
-  the person to sign in again), and is scoped (`tokens.scope = 'whiteboard'`, migration 0004): it works on
+  gallery page, expires after `WHITEBOARD_LOGIN_DAYS` days, 90 when unset (`tokens.expires_at`,
+  migration 0005; Whiteboard then asks the person to sign in again), and is scoped (`tokens.scope = 'whiteboard'`, migration 0004): it works on
   `/api/auth/get-session` and `/api/v2/shares…` and counts as signed out everywhere else, pages
   included (`currentUser` returns nobody for a scoped token unless the caller names its scope).
   Only a browser session approves a code on `/device`; a token never does, so a token cannot
@@ -245,6 +247,7 @@ real `wrangler.jsonc` outside this repo (it is gitignored here) and copies it in
 | `ORG_NAME` | label for `org` mode in the UI, e.g. `Example Co` |
 | `ORG_EMAILS`, `ORG_DOMAINS`, `PUBLISHERS`, `ADMINS` | comma-separated |
 | `SESSION_SECRET` | `wrangler secret put` |
+| `WHITEBOARD_LOGIN_DAYS` | optional; days a Whiteboard login lasts, default `90` |
 | `DEV_LOGIN` | `"1"` only in `.dev.vars` |
 
 Bindings: D1 `DB`, R2 `BLOBS`. Routes: the app and login hosts as custom domains, and
