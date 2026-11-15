@@ -211,7 +211,7 @@ switch (cmd) {
   case "board": {
     const src = pos[0] ?? die(2, "board needs a review id or a .whiteboard file");
     let raw: Buffer;
-    if (existsSync(src)) {
+    if (existsSync(src) && statSync(src).isFile()) {
       raw = readFileSync(src);
     } else {
       const tmp = mkdtempSync(join(tmpdir(), "tack-board-"));

@@ -203,7 +203,10 @@ check("the token names its person", session.user?.name === "nate@dev.test" && se
 check("no JWT exchange: the client sends its token as it is", (await wb("/api/auth/token", { headers: { Authorization: `Bearer ${wbTok}` } })).status === 404);
 // The token Whiteboard gets is for the hub only, and only a browser session can approve a code.
 const hubOnly = { headers: { Authorization: `Bearer ${wbTok}` } };
-check("a Whiteboard login token can't read or publish artifacts", (await wb("/api/artifacts", hubOnly)).status === 403 && (await wb("/api/me", hubOnly)).status === 403 && tack(wbTok, "publish", join(dir, "index.html"), "--title", "Scoped").code === 4);
+check("a Whiteboard login token can't read or publish artifacts", (await wb("/api/artifacts", hubOnly)).status === 401 && ((await (await wb("/api/me", hubOnly)).json()) as any).email === null && tack(wbTok, "publish", join(dir, "index.html"), "--title", "Scoped").code === 4);
+const scopedPage = await wb(`/a/${id}`, { ...hubOnly, redirect: "manual" });
+check("…or open an artifact's page, which would hand it the files", scopedPage.status === 302 && !(await scopedPage.text()).includes("/t/") && (await wb(`/api/artifacts/${id}/frame`, hubOnly)).status === 401);
+check("a full token still opens that page", (await (await wb(`/a/${id}`, { headers: { Authorization: `Bearer ${tok.token}` } })).text()).includes("/t/"));
 check("…or name the board viewer", (await wb("/api/whiteboard/viewer", { method: "PUT", headers: { ...hubOnly.headers, "Content-Type": "application/json" }, body: JSON.stringify({ artifact: id }) })).status === 403);
 const selfMint: any = await (await wbJson("/api/auth/device/code", { client_id: "review-cli" })).json();
 const byToken = await wb("/device", { method: "POST", redirect: "manual", headers: { Authorization: `Bearer ${tok.token}`, Origin: APP }, body: new URLSearchParams({ user_code: selfMint.user_code }) });
@@ -300,6 +303,7 @@ check("the frozen share is revoked", (await wb(`/api/v2/shares/${frozen.shareId}
 // fails_when=a wrong grant type or missing client_id is accepted, slow_down is never sent, or an unknown code reaches the Approve form;
 // why_new=deviceLogin above sends only well-formed requests, polls once before approval, and opens /device with a live code;
 // seam=none; no_claim=the ten-minute expiry (no clock control against a running server)
+check("an oversized device request is refused unread", ((await (await wbJson("/api/auth/device/code", { client_id: "x".repeat(64 * 1024) })).json()) as any).error === "invalid_request");
 check("a device request without a client id is refused", ((await (await wbJson("/api/auth/device/code", { scope: "identity" })).json()) as any).error === "invalid_request");
 const dc: any = await (await wbJson("/api/auth/device/code", { client_id: "review-cli" })).json();
 check("a wrong grant type is refused", ((await (await wbJson("/api/auth/device/token", { grant_type: "password", device_code: dc.device_code })).json()) as any).error === "invalid_request");
@@ -338,7 +342,9 @@ check("…and share pages still frame the registered version", (await (await con
 const theirs: any = await (await wbJson("/api/v2/shares", { requestId: crypto.randomUUID(), bundle: { ...bundle, reviewId: "tenant-board", title: "Tenant board" } }, tenantTok.token)).json();
 const theirCap = String(theirs.url ?? "").split("/s/")[1] ?? "";
 const everyone = await wb("/api/v2/shares?owner=*", fullAuth);
-check("an admin lists everyone's shares, with owners", ((await everyone.json()) as any).items?.some((i: any) => i.shareId === theirs.shareId && i.owner === "agents@dev.test"));
+const everyoneItems: any[] = ((await everyone.json()) as any).items ?? [];
+check("an admin lists everyone's shares, with owners", everyoneItems.some((i: any) => i.shareId === theirs.shareId && i.owner === "agents@dev.test"));
+check("…but gets no link to read someone else's board", everyoneItems.find((i: any) => i.shareId === theirs.shareId)?.url === null && String(everyoneItems.find((i: any) => i.shareId === first.shareId)?.url).includes("/s/"));
 check("a publisher can't list someone else's", (await wb("/api/v2/shares?owner=*", { headers: { Authorization: `Bearer ${tenantTok.token}` } })).status === 403 && (await wb("/api/v2/shares?owner=nate@dev.test", { headers: { Authorization: `Bearer ${tenantTok.token}` } })).status === 403);
 check("an admin's Whiteboard login token is not an admin", (await wb("/api/v2/shares?owner=*", auth)).status === 403 && (await wb(`/api/v2/shares/${theirs.shareId}`, { method: "DELETE", ...auth })).status === 404 && (await wb(`/api/v2/shared/${theirCap}`)).status === 200);
 check("an admin revokes someone else's share", (await wb(`/api/v2/shares/${theirs.shareId}`, { method: "DELETE", ...fullAuth })).status === 200 && (await wb(`/api/v2/shared/${theirCap}`)).status === 404);
@@ -347,7 +353,11 @@ const revoked: any = await (await wb(`/api/v2/shares/${first.shareId}`, { method
 check("the owner revokes", revoked.revoked === true && revoked.shareId === first.shareId);
 check("a revoked link is 404 everywhere", (await wb(`/api/v2/shared/${cap}`)).status === 404 && (await wb(`/api/v2/shared/${cap}/bundle`)).status === 404 && (await sharePage()).status === 404);
 check("…including a frame handed out before the revoke", (await content(frameSrc + "board.whiteboard")).status === 404);
-if (viewer.code === 0) tack(tok.token, "delete", viewer.json.id, "--yes");
+if (viewer.code === 0) {
+  tack(tok.token, "delete", viewer.json.id, "--yes");
+  const gone: any = await (await wb("/api/whiteboard/viewer", fullAuth)).json();
+  check("a deleted viewer reads back as none registered", gone.artifact === null && gone.version === null);
+}
 
 // Delete
 check("delete needs --yes", tack(tok.token, "delete", id).code === 2);

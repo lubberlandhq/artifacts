@@ -45,6 +45,45 @@ const oauthFail = (error: string) => json({ error }, 400);
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
+// A request body of at most `limit` bytes, read as it arrives so an oversized or undeclared
+// body is dropped at the limit instead of buffered whole. Null when it is larger.
+async function readBounded(req: Request, limit: number): Promise<Uint8Array | null> {
+  if (Number(req.headers.get("Content-Length") ?? 0) > limit) return null;
+  if (!req.body) return new Uint8Array();
+  const reader = req.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.byteLength;
+  }
+  return out;
+}
+
+const SMALL_BODY = 8 * 1024; // the device endpoints take a few short strings
+
+async function smallJson<T>(req: Request): Promise<T | null> {
+  const raw = await readBounded(req, SMALL_BODY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(raw)) as T;
+  } catch {
+    return null;
+  }
+}
+
 // ---- Device login ----------------------------------------------------------------------------
 
 // No 0/O or 1/I, and 32 symbols so a byte maps evenly.
@@ -62,7 +101,7 @@ export function normalizeUserCode(input: string | null): string | null {
 }
 
 async function deviceCode(req: Request, env: Env): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { client_id?: unknown } | null;
+  const body = await smallJson<{ client_id?: unknown }>(req);
   if (!body || typeof body.client_id !== "string") return oauthFail("invalid_request");
   const now = nowSeconds();
   await env.DB.prepare("DELETE FROM wb_device_codes WHERE expires < ?").bind(now).run();
@@ -82,7 +121,7 @@ async function deviceCode(req: Request, env: Env): Promise<Response> {
 }
 
 async function deviceToken(req: Request, env: Env): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { grant_type?: unknown; device_code?: unknown } | null;
+  const body = await smallJson<{ grant_type?: unknown; device_code?: unknown }>(req);
   if (!body || body.grant_type !== "urn:ietf:params:oauth:grant-type:device_code" || typeof body.device_code !== "string") {
     return oauthFail("invalid_request");
   }
@@ -148,6 +187,13 @@ interface RevisionRow {
 
 const blobKey = (shareId: string, revisionId: string) => `wb/${shareId}/${revisionId}.json`;
 
+// Whether a snapshot's revision still exists. The content origin asks before serving a board, so
+// a frame handed out before a revoke stops at the revoke, not when its grant expires.
+export async function boardStillShared(env: Env, key: string): Promise<boolean> {
+  const m = key.match(/^wb\/[0-9a-f-]{36}\/([0-9a-f-]{36})\.json$/);
+  return !!m && !!(await env.DB.prepare("SELECT 1 AS ok FROM wb_revisions WHERE id = ?").bind(m[1]).first());
+}
+
 const linkUrl = (env: Env, capability: string, revision?: string) =>
   `${env.APP_ORIGIN}/s/${capability}${revision ? `?rev=${revision}` : ""}`;
 
@@ -167,8 +213,15 @@ async function linkForUpload(env: Env, share: ShareRow): Promise<string> {
   if (known) return linkUrl(env, known);
   const capability = randomToken(32);
   const c = await sealCapability(env, capability);
-  await env.DB.prepare("UPDATE wb_shares SET cap_hash = ?, cap_sealed = ? WHERE id = ?").bind(c.hash, c.sealed, share.id).run();
-  return linkUrl(env, capability);
+  // Only if nobody replaced it meanwhile: of two uploads racing here, both answer the winner's link.
+  const r = await env.DB.prepare("UPDATE wb_shares SET cap_hash = ?, cap_sealed = ? WHERE id = ? AND cap_hash = ?")
+    .bind(c.hash, c.sealed, share.id, share.cap_hash)
+    .run();
+  if (r.meta.changes === 1) return linkUrl(env, capability);
+  const now = await env.DB.prepare("SELECT * FROM wb_shares WHERE id = ?").bind(share.id).first<ShareRow>();
+  const winner = now ? await capabilityOf(env, now) : null;
+  if (!winner) throw new Error(`share ${share.id}: no recoverable link after a concurrent change`);
+  return linkUrl(env, winner);
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -189,9 +242,8 @@ export function bundleProblem(b: unknown): string | null {
 async function publish(req: Request, env: Env, email: string): Promise<Response> {
   // A little room for the envelope around the 16 MiB bundle.
   const limit = MAX_SHARE_BYTES + 4096;
-  if (Number(req.headers.get("Content-Length") ?? 0) > limit) return fail(413, "too_large");
-  const raw = await req.arrayBuffer();
-  if (raw.byteLength > limit) return fail(413, "too_large");
+  const raw = await readBounded(req, limit);
+  if (!raw) return fail(413, "too_large");
   let body: { requestId?: unknown; bundle?: unknown };
   try {
     body = JSON.parse(new TextDecoder().decode(raw));
@@ -241,7 +293,13 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
   const latest = await env.DB.prepare("SELECT MAX(version) AS v FROM wb_revisions WHERE share_id = ?").bind(share.id).first<{ v: number | null }>();
   if (latest?.v == null || bundle.version > latest.v) {
     const revisionId = crypto.randomUUID();
-    await env.BLOBS.put(blobKey(share.id, revisionId), bytes, { httpMetadata: { contentType: "application/json" } });
+    try {
+      await env.BLOBS.put(blobKey(share.id, revisionId), bytes, { httpMetadata: { contentType: "application/json" } });
+    } catch (e) {
+      // A first upload that stored nothing leaves no share behind to list with a dead link.
+      await env.DB.prepare("DELETE FROM wb_shares WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM wb_revisions WHERE share_id = ?1)").bind(share.id).run();
+      throw e;
+    }
     try {
       await env.DB.batch([
         env.DB.prepare("INSERT INTO wb_revisions (id, share_id, version, size, sender, frozen, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(
@@ -253,7 +311,12 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
           bundle.frozen === true ? 1 : 0,
           now,
         ),
-        env.DB.prepare("UPDATE wb_shares SET title = ? WHERE id = ?").bind(bundle.title, share.id),
+        // The newest version names the share, whatever order uploads land in.
+        env.DB.prepare("UPDATE wb_shares SET title = ?1 WHERE id = ?2 AND NOT EXISTS (SELECT 1 FROM wb_revisions WHERE share_id = ?2 AND version > ?3)").bind(
+          bundle.title,
+          share.id,
+          bundle.version,
+        ),
       ]);
     } catch (e) {
       // The same version landed from a concurrent upload: that one stands.
@@ -270,7 +333,7 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
 }
 
 // `owner` is whose shares to list; null is everyone's (admins, with ?owner=*).
-async function listShares(env: Env, owner: string | null, cursor: string | null, showOwner: boolean): Promise<Response> {
+async function listShares(env: Env, owner: string | null, cursor: string | null, showOwner: boolean, caller: string): Promise<Response> {
   const PAGE = 100;
   const email = owner ?? "";
   const everyone = owner === null ? 1 : 0;
@@ -294,14 +357,16 @@ async function listShares(env: Env, owner: string | null, cursor: string | null,
   const page = results.slice(0, PAGE);
   const items = await Promise.all(
     page.map(async (s) => {
-      const capability = await capabilityOf(env, s);
+      // The link is the read capability: an admin listing other people's shares gets ids to
+      // revoke by, not links to read with.
+      const capability = s.owner === caller ? await capabilityOf(env, s) : null;
       return {
         shareId: s.id,
         reviewId: s.review_id,
         title: s.title,
         latestVersion: s.latest_version,
         createdAt: s.created_at,
-        // Null when the link can't be recovered; the share can still be revoked by its id.
+        // Null for someone else's share, or when the link can't be recovered; revoke works by id.
         url: capability ? linkUrl(env, capability) : null,
         ...(showOwner ? { owner: s.owner } : {}),
       };
@@ -316,18 +381,23 @@ async function revisionsOf(env: Env, shareId: string): Promise<RevisionRow[]> {
 }
 
 async function revoke(env: Env, share: ShareRow): Promise<Response> {
-  // Snapshots first: they are what a link, or a frame already handed out, serves. If this fails
-  // part-way the share row is still there, so the owner can revoke again.
-  for (;;) {
-    const listed = await env.BLOBS.list({ prefix: `wb/${share.id}/` });
-    if (listed.objects.length) await env.BLOBS.delete(listed.objects.map((o) => o.key));
-    if (!listed.truncated) break;
-  }
+  // Snapshots first: if this fails part-way the share row is still there, so the owner can
+  // revoke again. Then the rows, which is what stops every read (boardStillShared below), and
+  // one more sweep for a snapshot an upload stored while this ran.
+  const sweep = async () => {
+    for (;;) {
+      const listed = await env.BLOBS.list({ prefix: `wb/${share.id}/` });
+      if (listed.objects.length) await env.BLOBS.delete(listed.objects.map((o) => o.key));
+      if (!listed.truncated) break;
+    }
+  };
+  await sweep();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM wb_revisions WHERE share_id = ?").bind(share.id),
     env.DB.prepare("DELETE FROM wb_requests WHERE share_id = ?").bind(share.id),
     env.DB.prepare("DELETE FROM wb_shares WHERE id = ?").bind(share.id),
   ]);
+  await sweep();
   return json({ shareId: share.id, revoked: true });
 }
 
@@ -411,7 +481,7 @@ export async function handleWhiteboardApi(req: Request, env: Env, url: URL): Pro
     return new Response(method === "HEAD" ? null : obj.body, { headers: { ...HEADERS, "Content-Length": String(obj.size) } });
   }
 
-  const user = await currentUser(req, env);
+  const user = await currentUser(req, env, TOKEN_SCOPE);
   const email = user?.email ?? null;
   const policy = orgPolicy(env);
   if (method !== "GET" && user?.via === "session" && req.headers.get("Origin") !== env.APP_ORIGIN) return fail(403, "forbidden");
@@ -454,7 +524,7 @@ export async function handleWhiteboardApi(req: Request, env: Env, url: URL): Pro
       // ?owner=<email> or ?owner=* (everyone) is for admins; without it, the caller's own.
       const owner = url.searchParams.get("owner")?.trim().toLowerCase() || null;
       if (owner && owner !== email && !admin) return fail(403, "forbidden");
-      return listShares(env, owner === "*" ? null : (owner ?? email), url.searchParams.get("cursor"), owner !== null);
+      return listShares(env, owner === "*" ? null : (owner ?? email), url.searchParams.get("cursor"), owner !== null, email);
     }
     if (parts.length === 1 && method === "POST") {
       if (!canPublish(policy, email)) return fail(403, "forbidden");

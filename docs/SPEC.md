@@ -185,7 +185,8 @@ Rules:
 
 - The token a device login yields is labelled "Whiteboard login", listed and revoked on the
   gallery page, and scoped (`tokens.scope = 'whiteboard'`, migration 0004): it works on
-  `/api/auth/get-session` and `/api/v2/shares…` and is refused with 403 on the rest of the API.
+  `/api/auth/get-session` and `/api/v2/shares…` and counts as signed out everywhere else, pages
+  included (`currentUser` returns nobody for a scoped token unless the caller names its scope).
   Only a browser session approves a code on `/device`; a token never does, so a token cannot
   mint another. Anyone who can sign in may log Whiteboard in (a recipient needs it to open links
   in Desktop); only publishers may share.
@@ -196,15 +197,18 @@ Rules:
   them but the server can no longer show them: lists give `url: null`, `/link` and `/revisions`
   answer 409 `link_unrecoverable`, revoke still works, and sharing that board again replaces the
   link with a new one.
-- A link is readable until revoked, so an admin can list and revoke anyone's share. That power
+- A link is readable until revoked, so an admin can list and revoke anyone's share. The listing
+  gives ids and owners, not links: `url` is null for a share that is not the caller's. That power
   needs a session or a full token; an admin's Whiteboard login token has none of it.
 - One link per (owner, board). A bundle is accepted when it is a `review-share/2` object with the
   parts every reader requires, at most 16 MiB; the reader validates the rest. A repeated
   `requestId` answers as the first upload did. A higher `bundle.version` adds a revision; an
   equal or lower one changes nothing.
 - Snapshots are stored in R2 at `wb/<share id>/<revision id>.json`. Revoking deletes those
-  objects, then the rows; every read route then answers 404, the same as for an unknown
-  capability. If the object delete fails the row remains, so the owner can revoke again.
+  objects, then the rows, then sweeps the objects once more; every read route then answers 404,
+  the same as for an unknown capability. The content origin serves a snapshot only while its
+  revision row exists, so a frame handed out earlier stops at the revoke. If the object delete
+  fails the row remains, so the owner can revoke again.
 - The browser view gives each share its own content origin (`content_id`). Its grant borrows the
   registered viewer artifact's files and serves that revision's snapshot as `board.whiteboard`,
   so the page is the one `tack board` publishes. The viewer is registered by an admin, must be

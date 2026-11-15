@@ -88,8 +88,6 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   const method = req.method;
   const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
 
-  // A scoped token (Whiteboard's device login) works on its own routes, never here.
-  if (user?.scope) return err(403, "this token only works for Whiteboard sharing");
   if (method !== "GET" && user?.via === "session" && req.headers.get("Origin") !== env.APP_ORIGIN) {
     return err(403, "cross-origin write refused");
   }

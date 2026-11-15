@@ -91,7 +91,8 @@ async function appHost(req: Request, env: Env, url: URL): Promise<Response> {
     const email = user.email;
     if (req.method === "POST") {
       if (req.headers.get("Origin") !== env.APP_ORIGIN) return withStatus(messagePage(env, "Not approved", "That request came from another site."), 403);
-      const code = normalizeUserCode(String((await req.formData()).get("user_code") ?? ""));
+      const form = await req.formData().catch(() => null);
+      const code = normalizeUserCode(String(form?.get("user_code") ?? ""));
       return code && (await approveDevice(env, code, email))
         ? messagePage(env, "Whiteboard is signed in", `It is signed in as ${email}. Go back to Whiteboard; this tab can be closed.`)
         : messagePage(env, "Code not accepted", "That code is wrong, already used, or more than ten minutes old. Start the sign-in again from Whiteboard.");

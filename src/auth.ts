@@ -19,13 +19,15 @@ function cookie(req: Request, name: string): string | null {
   return null;
 }
 
-export async function currentUser(req: Request, env: Env): Promise<User | null> {
+// `scope` is the one token scope this caller serves. A scoped token (Whiteboard's device login)
+// is nobody everywhere else: pages, the API and anything added later refuse it by default.
+export async function currentUser(req: Request, env: Env, scope?: string): Promise<User | null> {
   const authz = req.headers.get("Authorization");
   if (authz?.startsWith("Bearer ")) {
     // Lookup is by hash alone, never by prefix: tokens minted as lsh_ (before the rename) stay valid.
     const hash = await sha256Hex(authz.slice(7).trim());
     const row = await env.DB.prepare("SELECT owner, scope FROM tokens WHERE hash = ?").bind(hash).first<{ owner: string; scope: string | null }>();
-    if (!row) return null;
+    if (!row || (row.scope && row.scope !== scope)) return null;
     await env.DB.prepare("UPDATE tokens SET last_used = ? WHERE hash = ?").bind(new Date().toISOString(), hash).run();
     return { email: row.owner, via: "token", ...(row.scope ? { scope: row.scope } : {}) };
   }
