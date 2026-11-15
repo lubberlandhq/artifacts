@@ -86,7 +86,9 @@ async function appHost(req: Request, env: Env, url: URL): Promise<Response> {
 
   // Whiteboard's device login: the person signed in here approves the code their computer shows.
   if (path === "/device") {
-    if (!email) return redirect(loginUrl(env, path + url.search));
+    // A browser session only: a token must never approve a code, or it could mint itself another token.
+    if (user?.via !== "session") return redirect(loginUrl(env, path + url.search));
+    const email = user.email;
     if (req.method === "POST") {
       if (req.headers.get("Origin") !== env.APP_ORIGIN) return withStatus(messagePage(env, "Not approved", "That request came from another site."), 403);
       const code = normalizeUserCode(String((await req.formData()).get("user_code") ?? ""));

@@ -8,7 +8,7 @@ CREATE TABLE wb_device_codes (
   user_code   TEXT UNIQUE NOT NULL,
   email       TEXT,                       -- NULL until approved
   expires     INTEGER NOT NULL,           -- epoch seconds
-  last_poll   INTEGER
+  last_poll   INTEGER                     -- epoch milliseconds
 );
 
 -- One link per (owner, board). The link's capability is the only read control, so only its

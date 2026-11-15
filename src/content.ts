@@ -79,8 +79,8 @@ export async function serveContent(req: Request, env: Env, id: string): Promise<
   return new Response(req.method === "HEAD" ? null : obj.body, { headers });
 }
 
-// The snapshot behind a share's page. It is gone the moment the share is revoked, whatever the
-// grant's remaining lifetime.
+// The snapshot behind a share's page. Revoking a share deletes it, so a frame handed out earlier
+// stops serving the board whatever the grant's remaining lifetime.
 async function serveBoard(req: Request, env: Env, key: string): Promise<Response> {
   const obj = await env.BLOBS.get(key);
   if (!obj) return notFound();

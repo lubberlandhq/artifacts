@@ -245,14 +245,17 @@ switch (cmd) {
   case "board-viewer": {
     // The viewer with no board beside it: a share's page gets its board.whiteboard from the server.
     // Checked first, so someone who can't register it doesn't publish a stray copy.
-    if (!(await call("GET", "/me")).admin) die(4, "only an admin registers the board viewer");
+    const me = await call("GET", "/me");
+    if (!me.admin) die(4, "only an admin registers the board viewer");
     const fd = await boardViewerFiles();
     fd.append("label", `canvas ${CANVAS_VERSION}`);
-    const current: string | null = (await call("GET", "/whiteboard/viewer")).artifact;
+    // Update the registered viewer when it is yours; an admin registers only their own artifact.
+    const registered = await call("GET", "/whiteboard/viewer");
+    const current: string | null = registered.owner === me.email ? registered.artifact : null;
     if (!current) fd.append("title", "Whiteboard board viewer");
     const a = current ? await call("POST", `/artifacts/${current}/versions`, fd) : await call("POST", "/artifacts", fd);
     await call("PUT", "/whiteboard/viewer", { artifact: a.id });
-    out({ ...a, registered: true }, () => `${a.url}\n  ${a.title} · v${a.live_version} · registered as this server's board viewer`);
+    out({ ...a, registered: true }, () => `${a.url}\n  ${a.title} · v${a.live_version} · registered at this version as this server's board viewer`);
     break;
   }
   case "list": {

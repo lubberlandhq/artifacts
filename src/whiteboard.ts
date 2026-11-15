@@ -23,6 +23,8 @@ export const SHARE_FORMAT = "review-share/2";
 export const MAX_SHARE_BYTES = 16 * 1024 * 1024;
 const DEVICE_TTL = 600; // seconds a device code stays approvable
 const POLL_INTERVAL = 2; // seconds the client waits between polls
+const POLL_TOO_FAST_MS = 1000; // polls closer together than this are told to slow down
+export const TOKEN_SCOPE = "whiteboard"; // what a device login's token is limited to
 const REQUEST_TTL_MS = 7 * 24 * 3600 * 1000;
 const VIEWER_SETTING = "whiteboard_viewer";
 
@@ -91,16 +93,17 @@ async function deviceToken(req: Request, env: Env): Promise<Response> {
     .first<{ email: string | null; expires: number; last_poll: number | null }>();
   if (!row || row.expires < now) return oauthFail("expired_token");
   if (!row.email) {
-    await env.DB.prepare("UPDATE wb_device_codes SET last_poll = ? WHERE device_hash = ?").bind(now, hash).run();
-    return oauthFail(row.last_poll !== null && now - row.last_poll < POLL_INTERVAL - 1 ? "slow_down" : "authorization_pending");
+    const nowMs = Date.now();
+    await env.DB.prepare("UPDATE wb_device_codes SET last_poll = ? WHERE device_hash = ?").bind(nowMs, hash).run();
+    return oauthFail(row.last_poll !== null && nowMs - row.last_poll < POLL_TOO_FAST_MS ? "slow_down" : "authorization_pending");
   }
   // Deleting the row is the claim: of two polls racing, one gets the token.
   const claimed = await env.DB.prepare("DELETE FROM wb_device_codes WHERE device_hash = ? AND email IS NOT NULL RETURNING email")
     .bind(hash)
     .first<{ email: string }>();
   if (!claimed) return oauthFail("expired_token");
-  // An ordinary API token, so it shows up, and is revoked, with the person's other tokens.
-  const token = await createApiToken(env, claimed.email, "Whiteboard login", claimed.email);
+  // Listed and revoked with the person's other tokens, but good for the share hub only.
+  const token = await createApiToken(env, claimed.email, "Whiteboard login", claimed.email, TOKEN_SCOPE);
   return json({ access_token: token, token_type: "Bearer" });
 }
 
@@ -148,10 +151,24 @@ const blobKey = (shareId: string, revisionId: string) => `wb/${shareId}/${revisi
 const linkUrl = (env: Env, capability: string, revision?: string) =>
   `${env.APP_ORIGIN}/s/${capability}${revision ? `?rev=${revision}` : ""}`;
 
-async function capabilityOf(env: Env, share: ShareRow): Promise<string> {
-  const cap = await decryptText(env.SESSION_SECRET, "wb-capability", share.cap_sealed);
-  if (!cap) throw new Error(`share ${share.id}: the link can't be recovered (SESSION_SECRET changed?)`);
-  return cap;
+// Null when the sealed copy no longer opens: SESSION_SECRET changed since the share was made.
+// The link still works for whoever holds it; only the server can't spell it out any more.
+const capabilityOf = (env: Env, share: ShareRow): Promise<string | null> => decryptText(env.SESSION_SECRET, "wb-capability", share.cap_sealed);
+
+const sealCapability = async (env: Env, capability: string) => ({
+  hash: await sha256Hex(capability),
+  sealed: await encryptText(env.SESSION_SECRET, "wb-capability", capability),
+});
+
+// The link for an upload's answer. A share whose link can't be recovered gets a new one: the
+// old link stops working, which beats an owner who can never share that board again.
+async function linkForUpload(env: Env, share: ShareRow): Promise<string> {
+  const known = await capabilityOf(env, share);
+  if (known) return linkUrl(env, known);
+  const capability = randomToken(32);
+  const c = await sealCapability(env, capability);
+  await env.DB.prepare("UPDATE wb_shares SET cap_hash = ?, cap_sealed = ? WHERE id = ?").bind(c.hash, c.sealed, share.id).run();
+  return linkUrl(env, capability);
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -162,7 +179,7 @@ export function bundleProblem(b: unknown): string | null {
   if (!isRecord(b)) return "bundle is not an object";
   if (b.format !== SHARE_FORMAT) return `format is not ${SHARE_FORMAT}`;
   if (typeof b.reviewId !== "string" || b.reviewId.length < 1 || b.reviewId.length > 256) return "reviewId";
-  if (typeof b.version !== "number" || !Number.isInteger(b.version) || b.version < 0) return "version";
+  if (typeof b.version !== "number" || !Number.isSafeInteger(b.version) || b.version < 0) return "version";
   if (typeof b.title !== "string" || b.title.length > 4096) return "title";
   for (const k of ["snapshot", "images", "traces", "maps", "selections"]) if (!isRecord(b[k])) return k;
   for (const k of ["commits", "sources"]) if (!Array.isArray(b[k])) return k;
@@ -194,13 +211,13 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
   const prior = await env.DB.prepare("SELECT s.* FROM wb_requests r JOIN wb_shares s ON s.id = r.share_id WHERE r.owner = ? AND r.request_id = ?")
     .bind(email, requestId)
     .first<ShareRow>();
-  if (prior) return json({ shareId: prior.id, url: linkUrl(env, await capabilityOf(env, prior)) });
+  if (prior) return json({ shareId: prior.id, url: await linkForUpload(env, prior) });
 
   const find = () =>
     env.DB.prepare("SELECT * FROM wb_shares WHERE owner = ? AND review_id = ?").bind(email, bundle.reviewId).first<ShareRow>();
   let share = await find();
   if (!share) {
-    const capability = randomToken(32);
+    const c = await sealCapability(env, randomToken(32));
     // OR IGNORE: two first uploads of one board race to the same row, and both then read it.
     await env.DB.prepare(
       "INSERT OR IGNORE INTO wb_shares (id, owner, review_id, title, cap_hash, cap_sealed, content_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -210,8 +227,8 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
         email,
         bundle.reviewId,
         bundle.title,
-        await sha256Hex(capability),
-        await encryptText(env.SESSION_SECRET, "wb-capability", capability),
+        c.hash,
+        c.sealed,
         randomId(),
         now,
       )
@@ -249,38 +266,46 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
     env.DB.prepare("INSERT OR IGNORE INTO wb_requests (owner, request_id, share_id, created_at) VALUES (?, ?, ?, ?)").bind(email, requestId, share.id, now),
     env.DB.prepare("DELETE FROM wb_requests WHERE created_at < ?").bind(now - REQUEST_TTL_MS),
   ]);
-  return json({ shareId: share.id, url: linkUrl(env, await capabilityOf(env, share)) });
+  return json({ shareId: share.id, url: await linkForUpload(env, share) });
 }
 
-async function listShares(env: Env, email: string, cursor: string | null): Promise<Response> {
+// `owner` is whose shares to list; null is everyone's (admins, with ?owner=*).
+async function listShares(env: Env, owner: string | null, cursor: string | null, showOwner: boolean): Promise<Response> {
   const PAGE = 100;
+  const email = owner ?? "";
+  const everyone = owner === null ? 1 : 0;
   let after: ShareRow | null = null;
   if (cursor) {
     if (!UUID.test(cursor)) return fail(400, "invalid_request");
-    after = await env.DB.prepare("SELECT * FROM wb_shares WHERE id = ? AND owner = ?").bind(cursor, email).first<ShareRow>();
+    after = await env.DB.prepare("SELECT * FROM wb_shares WHERE id = ?1 AND (owner = ?2 OR ?3 = 1)").bind(cursor, email, everyone).first<ShareRow>();
     if (!after) return fail(400, "invalid_request");
   }
   const { results } = await (after
     ? env.DB.prepare(
         `SELECT s.*, (SELECT MAX(version) FROM wb_revisions WHERE share_id = s.id) AS latest_version FROM wb_shares s
-          WHERE s.owner = ?1 AND (s.created_at < ?2 OR (s.created_at = ?2 AND s.id > ?3))
+          WHERE (s.owner = ?1 OR ?5 = 1) AND (s.created_at < ?2 OR (s.created_at = ?2 AND s.id > ?3))
           ORDER BY s.created_at DESC, s.id LIMIT ?4`,
-      ).bind(email, after.created_at, after.id, PAGE + 1)
+      ).bind(email, after.created_at, after.id, PAGE + 1, everyone)
     : env.DB.prepare(
         `SELECT s.*, (SELECT MAX(version) FROM wb_revisions WHERE share_id = s.id) AS latest_version FROM wb_shares s
-          WHERE s.owner = ?1 ORDER BY s.created_at DESC, s.id LIMIT ?2`,
-      ).bind(email, PAGE + 1)
+          WHERE (s.owner = ?1 OR ?3 = 1) ORDER BY s.created_at DESC, s.id LIMIT ?2`,
+      ).bind(email, PAGE + 1, everyone)
   ).all<ShareRow & { latest_version: number | null }>();
   const page = results.slice(0, PAGE);
   const items = await Promise.all(
-    page.map(async (s) => ({
-      shareId: s.id,
-      reviewId: s.review_id,
-      title: s.title,
-      latestVersion: s.latest_version,
-      createdAt: s.created_at,
-      url: linkUrl(env, await capabilityOf(env, s)),
-    })),
+    page.map(async (s) => {
+      const capability = await capabilityOf(env, s);
+      return {
+        shareId: s.id,
+        reviewId: s.review_id,
+        title: s.title,
+        latestVersion: s.latest_version,
+        createdAt: s.created_at,
+        // Null when the link can't be recovered; the share can still be revoked by its id.
+        url: capability ? linkUrl(env, capability) : null,
+        ...(showOwner ? { owner: s.owner } : {}),
+      };
+    }),
   );
   return json({ items, ...(results.length > PAGE ? { next: page[page.length - 1].id } : {}) });
 }
@@ -291,17 +316,18 @@ async function revisionsOf(env: Env, shareId: string): Promise<RevisionRow[]> {
 }
 
 async function revoke(env: Env, share: ShareRow): Promise<Response> {
-  // Rows first: the link stops resolving even if a blob delete fails part-way.
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM wb_revisions WHERE share_id = ?").bind(share.id),
-    env.DB.prepare("DELETE FROM wb_requests WHERE share_id = ?").bind(share.id),
-    env.DB.prepare("DELETE FROM wb_shares WHERE id = ?").bind(share.id),
-  ]);
+  // Snapshots first: they are what a link, or a frame already handed out, serves. If this fails
+  // part-way the share row is still there, so the owner can revoke again.
   for (;;) {
     const listed = await env.BLOBS.list({ prefix: `wb/${share.id}/` });
     if (listed.objects.length) await env.BLOBS.delete(listed.objects.map((o) => o.key));
     if (!listed.truncated) break;
   }
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM wb_revisions WHERE share_id = ?").bind(share.id),
+    env.DB.prepare("DELETE FROM wb_requests WHERE share_id = ?").bind(share.id),
+    env.DB.prepare("DELETE FROM wb_shares WHERE id = ?").bind(share.id),
+  ]);
   return json({ shareId: share.id, revoked: true });
 }
 
@@ -326,11 +352,20 @@ export async function resolveShared(env: Env, capability: string, rev: string | 
 
 // Where a share's page frames its board from, or null when no viewer is registered.
 export async function sharedFrame(env: Env, s: SharedBoard): Promise<string | null> {
-  const viewerId = await getSetting(env, VIEWER_SETTING);
-  const viewer = viewerId ? await getArtifact(env, viewerId) : null;
+  const viewer = await registeredViewer(env);
   if (!viewer) return null;
-  const from: BoardSource = { manifest: viewer.id, board: blobKey(s.share.id, s.revision.id) };
-  return contentUrl(env, s.share.content_id, viewer.live_version, from);
+  const from: BoardSource = { manifest: viewer.artifact, board: blobKey(s.share.id, s.revision.id) };
+  return contentUrl(env, s.share.content_id, viewer.version, from);
+}
+
+// The registered board viewer: one artifact at one version, "<id>:<version>". Pinned, so a later
+// publish to that artifact changes no share page until an admin registers it again. Null when
+// nothing is registered or the artifact is gone.
+async function registeredViewer(env: Env): Promise<{ artifact: string; version: number; owner: string } | null> {
+  const [id, ver] = ((await getSetting(env, VIEWER_SETTING)) ?? "").split(":");
+  const a = id ? await getArtifact(env, id) : null;
+  const version = Number(ver);
+  return a && Number.isInteger(version) && version >= 1 && version <= a.live_version ? { artifact: a.id, version, owner: a.owner } : null;
 }
 
 // ---- Settings --------------------------------------------------------------------------------
@@ -388,13 +423,14 @@ export async function handleWhiteboardApi(req: Request, env: Env, url: URL): Pro
   }
 
   // Which artifact holds the board viewer. Its files are served to anyone holding a share link,
-  // so only an admin names it.
+  // so only an admin names it, only one of their own, and never with a hub-only token.
   if (path === "/api/whiteboard/viewer") {
+    if (user?.scope) return fail(403, "forbidden");
     if (method === "GET") {
       if (!email) return fail(401, "login_required");
-      // Null too when the registered artifact was deleted, so `tack board-viewer` starts a new one.
-      const id = await getSetting(env, VIEWER_SETTING);
-      return json({ artifact: id && (await getArtifact(env, id)) ? id : null });
+      // Nulls too when the registered artifact was deleted, so `tack board-viewer` starts a new one.
+      const v = await registeredViewer(env);
+      return json({ artifact: v?.artifact ?? null, version: v?.version ?? null, owner: v?.owner ?? null });
     }
     if (method === "PUT") {
       if (!email) return fail(401, "login_required");
@@ -402,29 +438,39 @@ export async function handleWhiteboardApi(req: Request, env: Env, url: URL): Pro
       const b = (await req.json().catch(() => null)) as { artifact?: unknown } | null;
       const a = typeof b?.artifact === "string" ? await getArtifact(env, b.artifact) : null;
       if (!a) return fail(400, "invalid_request");
-      await setSetting(env, VIEWER_SETTING, a.id);
-      return json({ artifact: a.id });
+      if (a.owner !== email) return fail(403, "forbidden");
+      await setSetting(env, VIEWER_SETTING, `${a.id}:${a.live_version}`);
+      return json({ artifact: a.id, version: a.live_version, owner: a.owner });
     }
   }
 
   const parts = path.replace(/^\/api\/v2\/?/, "").split("/").filter(Boolean);
   if (path.startsWith("/api/v2") && parts[0] === "shares") {
     if (!email) return fail(401, "login_required");
-    if (parts.length === 1 && method === "GET") return listShares(env, email, url.searchParams.get("cursor"));
+    // An admin acts on anyone's shares, but not with a hub-only token: that one is a person's
+    // Whiteboard, not their admin hat.
+    const admin = isAdmin(policy, email) && !user?.scope;
+    if (parts.length === 1 && method === "GET") {
+      // ?owner=<email> or ?owner=* (everyone) is for admins; without it, the caller's own.
+      const owner = url.searchParams.get("owner")?.trim().toLowerCase() || null;
+      if (owner && owner !== email && !admin) return fail(403, "forbidden");
+      return listShares(env, owner === "*" ? null : (owner ?? email), url.searchParams.get("cursor"), owner !== null);
+    }
     if (parts.length === 1 && method === "POST") {
       if (!canPublish(policy, email)) return fail(403, "forbidden");
       return publish(req, env, email);
     }
     if (parts.length >= 2 && UUID.test(parts[1])) {
-      // Someone else's share and no share look the same.
-      const share = await env.DB.prepare("SELECT * FROM wb_shares WHERE id = ? AND owner = ?").bind(parts[1].toLowerCase(), email).first<ShareRow>();
+      // Someone else's share and no share look the same, except to an admin, who may revoke it.
+      const found = await env.DB.prepare("SELECT * FROM wb_shares WHERE id = ?").bind(parts[1].toLowerCase()).first<ShareRow>();
+      if (found && parts.length === 2 && method === "DELETE" && (found.owner === email || admin)) return revoke(env, found);
+      const share = found?.owner === email ? found : null;
       if (!share) return fail(404, "not_found");
-      if (parts.length === 2 && method === "DELETE") return revoke(env, share);
-      if (parts.length === 3 && parts[2] === "link" && method === "GET") {
-        return json({ shareId: share.id, url: linkUrl(env, await capabilityOf(env, share)) });
-      }
-      if (parts.length === 3 && parts[2] === "revisions" && method === "GET") {
+      if (parts.length === 3 && (parts[2] === "link" || parts[2] === "revisions") && method === "GET") {
         const capability = await capabilityOf(env, share);
+        // Sharing the board again mints a new link (linkForUpload); the old one can't be shown.
+        if (!capability) return fail(409, "link_unrecoverable");
+        if (parts[2] === "link") return json({ shareId: share.id, url: linkUrl(env, capability) });
         const revisions = await revisionsOf(env, share.id);
         return json({
           latest: revisions[0]?.id,

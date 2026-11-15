@@ -116,6 +116,7 @@ describe("whiteboard hub", () => {
     expect(bundleProblem({ ...ok, reviewId: "" })).not.toBeNull();
     expect(bundleProblem({ ...ok, version: -1 })).not.toBeNull();
     expect(bundleProblem({ ...ok, version: 1.5 })).not.toBeNull();
+    expect(bundleProblem({ ...ok, version: 1e300 })).not.toBeNull();
     expect(bundleProblem({ ...ok, snapshot: [] })).not.toBeNull();
     expect(bundleProblem({ ...ok, sources: {} })).not.toBeNull();
     expect(bundleProblem(null)).not.toBeNull();

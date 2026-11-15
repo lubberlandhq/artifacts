@@ -59,4 +59,6 @@ export interface Artifact extends Omit<ArtifactRow, "read_users" | "write_users"
 export interface User {
   email: string;
   via: "session" | "token";
+  // Set for a token limited to one part of the API ("whiteboard": the share hub only).
+  scope?: string;
 }

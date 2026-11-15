@@ -24,10 +24,10 @@ export async function currentUser(req: Request, env: Env): Promise<User | null> 
   if (authz?.startsWith("Bearer ")) {
     // Lookup is by hash alone, never by prefix: tokens minted as lsh_ (before the rename) stay valid.
     const hash = await sha256Hex(authz.slice(7).trim());
-    const row = await env.DB.prepare("SELECT owner FROM tokens WHERE hash = ?").bind(hash).first<{ owner: string }>();
+    const row = await env.DB.prepare("SELECT owner, scope FROM tokens WHERE hash = ?").bind(hash).first<{ owner: string; scope: string | null }>();
     if (!row) return null;
     await env.DB.prepare("UPDATE tokens SET last_used = ? WHERE hash = ?").bind(new Date().toISOString(), hash).run();
-    return { email: row.owner, via: "token" };
+    return { email: row.owner, via: "token", ...(row.scope ? { scope: row.scope } : {}) };
   }
   const c = cookie(req, SESSION_COOKIE);
   if (!c) return null;
@@ -98,10 +98,10 @@ export async function verifyAccessJwt(env: Env, jwt: string): Promise<string | n
   return claims.email?.toLowerCase() ?? null; // service tokens carry no email and get no session
 }
 
-export async function createApiToken(env: Env, owner: string, label: string, createdBy: string): Promise<string> {
+export async function createApiToken(env: Env, owner: string, label: string, createdBy: string, scope: string | null = null): Promise<string> {
   const token = `tck_${randomToken(30)}`;
-  await env.DB.prepare("INSERT INTO tokens (hash, owner, label, created_at, created_by) VALUES (?, ?, ?, ?, ?)")
-    .bind(await sha256Hex(token), owner, label, new Date().toISOString(), createdBy)
+  await env.DB.prepare("INSERT INTO tokens (hash, owner, label, created_at, created_by, scope) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(await sha256Hex(token), owner, label, new Date().toISOString(), createdBy, scope)
     .run();
   return token;
 }

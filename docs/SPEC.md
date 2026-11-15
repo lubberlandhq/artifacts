@@ -87,7 +87,8 @@ D1 holds metadata; R2 holds file bytes.
 - `versions(artifact_id, ver, author, label, manifest, created_at)`, primary key
   `(artifact_id, ver)`. `manifest` is JSON `{path: {sha256, size, type}}`.
 - `comments(id, artifact_id, ver, author, body, resolved, created_at)`.
-- `tokens(hash, owner, label, created_at, last_used, created_by)`.
+- `tokens(hash, owner, label, created_at, last_used, created_by, scope)`. `scope` NULL is the
+  whole API; `whiteboard` is the share hub only (section 7a).
 - `handoffs(…)`: single-use sign-in handoffs.
 - R2: `blob/<sha256>`, content-addressed, so a republish that changes one file copies nothing.
 - Share hub (section 7a): `wb_device_codes`, `wb_shares`, `wb_revisions`, `wb_requests` and
@@ -173,30 +174,42 @@ one the share hub frames (section 7a).
 | `GET /api/auth/get-session` | bearer | `{user:{id, name, email}}`, all the person's email |
 | `GET /api/auth/token` | — | 404: tells the client to send its token as it is |
 | `POST /api/v2/shares` | publisher | `{requestId, bundle}` → `{shareId, url}` |
-| `GET /api/v2/shares` | bearer | `{items:[{shareId, reviewId, title, latestVersion, createdAt, url}], next?}` |
-| `GET /api/v2/shares/:id/link`, `/revisions`; `DELETE /api/v2/shares/:id` | owner | recover the link, list revisions, revoke |
+| `GET /api/v2/shares` | bearer | `{items:[{shareId, reviewId, title, latestVersion, createdAt, url}], next?}`; an admin adds `?owner=<email>` or `?owner=*` and gets each item's `owner` |
+| `GET /api/v2/shares/:id/link`, `/revisions` | owner | recover the link, list revisions |
+| `DELETE /api/v2/shares/:id` | owner or admin | revoke |
 | `GET /api/v2/shared/:cap[?rev=]`, `/bundle` | anyone | who shared it and which revision; the snapshot |
 | `GET /s/:cap[?rev=]` | anyone | the page: title, sender, "Open in Whiteboard", the board framed |
-| `GET, PUT /api/whiteboard/viewer` | signed in; admin | which artifact holds the board viewer |
+| `GET, PUT /api/whiteboard/viewer` | signed in; admin | which artifact, at which version, holds the board viewer |
 
 Rules:
 
-- The token a device login yields is an ordinary API token labelled "Whiteboard login", listed
-  and revoked on the gallery page. Anyone who can sign in may log Whiteboard in (a recipient
-  needs it to open links in Desktop); only publishers may share.
+- The token a device login yields is labelled "Whiteboard login", listed and revoked on the
+  gallery page, and scoped (`tokens.scope = 'whiteboard'`, migration 0004): it works on
+  `/api/auth/get-session` and `/api/v2/shares…` and is refused with 403 on the rest of the API.
+  Only a browser session approves a code on `/device`; a token never does, so a token cannot
+  mint another. Anyone who can sign in may log Whiteboard in (a recipient needs it to open links
+  in Desktop); only publishers may share.
 - Reads are anonymous: the client sends them without credentials and refuses redirects, so the
   capability (32 random bytes, 43 base64url characters) is the only read control. Only its
   SHA-256 is stored for look-ups, plus a copy encrypted under `SESSION_SECRET` so the owner can
-  recover the link. Changing `SESSION_SECRET` makes existing links unrecoverable for their owners.
+  recover the link. After `SESSION_SECRET` changes, existing links keep working for whoever holds
+  them but the server can no longer show them: lists give `url: null`, `/link` and `/revisions`
+  answer 409 `link_unrecoverable`, revoke still works, and sharing that board again replaces the
+  link with a new one.
+- A link is readable until revoked, so an admin can list and revoke anyone's share. That power
+  needs a session or a full token; an admin's Whiteboard login token has none of it.
 - One link per (owner, board). A bundle is accepted when it is a `review-share/2` object with the
   parts every reader requires, at most 16 MiB; the reader validates the rest. A repeated
   `requestId` answers as the first upload did. A higher `bundle.version` adds a revision; an
   equal or lower one changes nothing.
-- Snapshots are stored in R2 at `wb/<share id>/<revision id>.json`. Revoking deletes the rows and
-  those objects; every read route then answers 404, the same as for an unknown capability.
+- Snapshots are stored in R2 at `wb/<share id>/<revision id>.json`. Revoking deletes those
+  objects, then the rows; every read route then answers 404, the same as for an unknown
+  capability. If the object delete fails the row remains, so the owner can revoke again.
 - The browser view gives each share its own content origin (`content_id`). Its grant borrows the
   registered viewer artifact's files and serves that revision's snapshot as `board.whiteboard`,
-  so the page is the one `tack board` publishes. With no viewer registered, `/s/:cap` shows the
+  so the page is the one `tack board` publishes. The viewer is registered by an admin, must be
+  that admin's own artifact, and is pinned at the version it had then: publishing to it later
+  changes no share page until `tack board-viewer` registers it again. With no viewer registered, `/s/:cap` shows the
   title and the "Open in Whiteboard" button only. A board that quotes uncommitted changes
   (`frozen`) gets no button.
 - No rate limiting is implemented; use Cloudflare rules in front if the server is public.

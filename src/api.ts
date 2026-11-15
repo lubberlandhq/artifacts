@@ -88,6 +88,8 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
   const method = req.method;
   const parts = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
 
+  // A scoped token (Whiteboard's device login) works on its own routes, never here.
+  if (user?.scope) return err(403, "this token only works for Whiteboard sharing");
   if (method !== "GET" && user?.via === "session" && req.headers.get("Origin") !== env.APP_ORIGIN) {
     return err(403, "cross-origin write refused");
   }
@@ -106,7 +108,7 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
       if (!user || user.via !== "session") return err(401, "sign in on the web to manage tokens");
       if (method === "GET" && parts.length === 1) {
         const { results } = await env.DB.prepare(
-          `SELECT substr(hash, 1, 12) AS id, owner, label, created_at, last_used FROM tokens
+          `SELECT substr(hash, 1, 12) AS id, owner, label, scope, created_at, last_used FROM tokens
             WHERE owner = ?1 OR created_by = ?1 ORDER BY created_at DESC`,
         )
           .bind(user.email)
