@@ -19,6 +19,7 @@ version or stay on a pinned one. Signed-in viewers can comment.
 | `src/` | the Worker: app shell, API, sign-in, content serving |
 | `migrations/` | D1 schema |
 | `cli/tack` | the CLI (bun) for people and agents |
+| `cli/board-viewer/`, `cli/board-viewer-build/` | the page `tack board` publishes, and the locked package list (`bun.lock`) its viewer is built from |
 | `skills/tack/SKILL.md` | an agent skill (Claude Code, Codex) for publishing with `tack` |
 
 Each artifact is served from its own origin, `<id>.<CONTENT_DOMAIN>`, on a domain apart from the
@@ -68,6 +69,11 @@ wrangler deploy
 `wrangler.jsonc` is gitignored: keep your deployment's copy wherever you keep infrastructure
 config and copy it in before deploying.
 
+When updating a server that is already running, apply the migrations before `wrangler deploy`.
+The Whiteboard support adds three (`0003`, `0004`, `0005`), and the Worker reads the token
+columns the last two add on every token request, so deployed ahead of them every request made
+with a token fails.
+
 Sign in at your app host, create a token on the gallery page, and:
 
 ```bash
@@ -79,17 +85,18 @@ bun cli/tack board <review-id>                             # a Whiteboard board 
 
 `tack board` takes a review id from [Whiteboard](https://github.com/devdotfast/whiteboard) (it runs
 `whiteboard export`) or a `.whiteboard` file. The page is a snapshot drawn by Whiteboard's own
-viewer, `@dev.fast/canvas`, which the first run fetches from npm and publishes with the board.
+viewer, `@dev.fast/canvas`, which the first run fetches from npm and publishes with the board. The
+viewer's packages are locked in `cli/board-viewer-build/bun.lock`.
 
 ### Whiteboard's own share links
 
 Tack also answers the share-service protocol Whiteboard speaks, so `whiteboard share` and the
 Share button in Whiteboard Desktop upload to your server and return a link on it. An admin sets
-up the browser view once; each person points their Whiteboard at the server once:
+up the browser view once; each person points their Whiteboard at the server:
 
 ```bash
 bun cli/tack board-viewer                                  # admin, once per server (and to update the viewer)
-whiteboard login --origin https://share.example.com       # each computer, once: approve the code in the browser
+whiteboard login --origin https://share.example.com       # each computer: approve the code in the browser
 whiteboard share --review <review-id>                      # prints https://share.example.com/s/<key>
 ```
 
@@ -100,6 +107,13 @@ is the only control, because Whiteboard fetches links without credentials); a sh
 snapshot, and sharing a newer saved version adds a revision under the same link; and logging
 Whiteboard in to your server logs it out of dev.fast's. `whiteboard share revoke <share-id>`
 deletes a share and its snapshots.
+
+A Whiteboard login is approved in a signed-in browser, never by a token. Its token works on the
+share hub only, not on the rest of Tack, and expires after `WHITEBOARD_LOGIN_DAYS` days (90 when
+unset); Whiteboard then asks the person to sign in again. An admin can list and revoke anyone's
+share through the API (`docs/SPEC.md` §7a), with a browser session or a gallery token, but gets
+no links for other people's shares. `board-viewer` registers the viewer at the version it
+publishes, as the admin's own artifact; share pages keep that version until it is run again.
 
 ## Agents
 

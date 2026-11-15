@@ -76,7 +76,9 @@ computer is logged in to the server (`whiteboard login --origin "$TACK_URL"`, ap
 person in a browser), they return a `/s/…` link that **anyone holding it can read**, with no
 sign-in, and that opens as an editable copy in Whiteboard Desktop. Use that only when the person
 asks for a Whiteboard share link, and tell them it is link-readable. `whiteboard share revoke
-<share-id>` deletes it.
+<share-id>` deletes it. The login lasts 90 days unless the server sets another length; when
+Whiteboard says the sign-in expired, the person logs in again. Only they can approve it, in a
+browser: `TACK_TOKEN` cannot.
 
 ## Other commands
 

@@ -95,7 +95,9 @@ D1 holds metadata; R2 holds file bytes.
 - Share hub (section 7a): `wb_device_codes`, `wb_shares`, `wb_revisions`, `wb_requests` and
   `settings` (migration 0003); R2 `wb/<share id>/<revision id>.json`.
 
-Migrations live in `migrations/` and are applied with `wrangler d1 migrations apply`.
+Migrations live in `migrations/` and are applied with `wrangler d1 migrations apply`, before the
+Worker that needs them is deployed: every token lookup reads `scope` and `expires_at`, so a
+Worker deployed ahead of migrations 0004 and 0005 fails every request made with a token.
 
 **Publishing.** `addVersion` inserts the version row and then updates `live_version` in one
 batch; a concurrent publish of the same version number fails on the primary key and returns 409.
@@ -172,7 +174,7 @@ one the share hub frames (section 7a).
 | Route | Who | What |
 |---|---|---|
 | `POST /api/auth/device/code` | anyone | starts a device login: device code, user code, `/device?user_code=` |
-| `GET, POST /device` | signed in | shows the user code; POST (same-origin) approves it |
+| `GET, POST /device` | browser session | shows the user code; POST (same-origin) approves it |
 | `POST /api/auth/device/token` | device code | `authorization_pending` until approved, then `{access_token}` once |
 | `GET /api/auth/get-session` | bearer | `{user:{id, name, email}}`, all the person's email |
 | `GET /api/auth/token` | — | 404: tells the client to send its token as it is |
