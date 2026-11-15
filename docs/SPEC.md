@@ -178,7 +178,7 @@ one the share hub frames (section 7a).
 | `POST /api/auth/device/token` | device code | `authorization_pending` until approved, then `{access_token}` once |
 | `GET /api/auth/get-session` | bearer | `{user:{id, name, email}}`, all the person's email |
 | `GET /api/auth/token` | — | 404: tells the client to send its token as it is |
-| `POST /api/v2/shares` | publisher | `{requestId, bundle}` → `{shareId, url}`. The request id is claimed before anything is stored: of two uploads with one id, both answer the first one's share |
+| `POST /api/v2/shares` | publisher | `{requestId, bundle}` → `{shareId, url}`. The request id is recorded before anything is stored and counts as answered once its share holds that version: a retry after a failed upload stores the board, and a second board uploaded under an id still in flight gets 409 `request_in_progress` |
 | `GET /api/v2/shares` | bearer | `{items:[{shareId, reviewId, title, latestVersion, createdAt, url}], next?}`, 100 a page; `?cursor=<next>` continues, and `next` (`<createdAt>.<shareId>`) still works after that share is revoked; an admin adds `?owner=<email>` or `?owner=*` and gets each item's `owner` |
 | `GET /api/v2/shares/:id/link`, `/revisions` | owner | recover the link, list revisions |
 | `DELETE /api/v2/shares/:id` | owner or admin | revoke |

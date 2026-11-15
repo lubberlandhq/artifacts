@@ -490,9 +490,28 @@ check("…and leaves other people's logins and plain tokens alone", (await alive
 // fails_when=the request id is recorded only after the board is stored, so each upload publishes its own;
 // seam=none; no_claim=which of the two wins
 const raceId = crypto.randomUUID();
-const raced: any[] = await Promise.all(["a", "b"].map(async (n) => (await wbJson("/api/v2/shares", { requestId: raceId, bundle: { ...bundle, reviewId: `race-${raceId}-${n}`, title: `Race ${n}` } }, wbTok)).json()));
+const racedRes = await Promise.all(["a", "b"].map((n) => wbJson("/api/v2/shares", { requestId: raceId, bundle: { ...bundle, reviewId: `race-${raceId}-${n}`, title: `Race ${n}` } }, wbTok)));
+const raced: any[] = await Promise.all(racedRes.map((r) => r.json()));
 const raceShares = d1(`SELECT COUNT(*) AS n FROM wb_shares WHERE review_id LIKE 'race-${raceId}-%'`)[0].n;
-check("two uploads with one request id are one share", raced[0].shareId === raced[1].shareId && raced[0].url === raced[1].url && raceShares === 1, `${raced[0].shareId} ${raced[1].shareId} ${raceShares}`);
+const raceWon = raced.find((r) => r.shareId)?.shareId;
+check("two uploads with one request id are one share", raceShares === 1 && !!raceWon && racedRes.every((r, i) => (r.status === 200 && raced[i].shareId === raceWon) || (r.status === 409 && raced[i].error?.code === "request_in_progress")), `${racedRes.map((r) => r.status).join()} ${raceShares}`);
+raced[0] = { shareId: raceWon };
+
+// Value: protects=a request id left behind by an upload that died is not an answer: the retry stores the board;
+// fails_when=a recorded request id alone answers 200, so the newer version is never stored and nobody is told;
+// why_new=the id is now recorded before the board is stored; seam=none;
+// no_claim=how an upload dies (the leftover record is put into the dev database directly)
+const stuckId = crypto.randomUUID();
+const stuckBundle = { ...bundle, reviewId: `stuck-${stuckId}`, title: "Before" };
+const stuckShare: any = await (await wbJson("/api/v2/shares", { requestId: crypto.randomUUID(), bundle: stuckBundle }, wbTok)).json();
+d1(`INSERT INTO wb_requests (owner, request_id, share_id, created_at) VALUES ('nate@dev.test', '${stuckId}', '${stuckShare.shareId}', ${Date.now()})`);
+const stuckVersion = bundle.version + 1;
+const stuckRevisions = () => d1(`SELECT COUNT(*) AS n FROM wb_revisions WHERE share_id = '${stuckShare.shareId}' AND version = ${stuckVersion}`)[0].n;
+const retry = async () => (await (await wbJson("/api/v2/shares", { requestId: stuckId, bundle: { ...stuckBundle, version: stuckVersion, title: "After a failed upload" } }, wbTok)).json()) as any;
+const retried = await retry();
+check("a retry after an upload that died stores the board", retried.shareId === stuckShare.shareId && stuckRevisions() === 1, `${retried.shareId} ${stuckRevisions()}`);
+check("…and the same retry again changes nothing", (await retry()).shareId === stuckShare.shareId && stuckRevisions() === 1);
+await wb(`/api/v2/shares/${stuckShare.shareId}`, { method: "DELETE", ...auth });
 await wb(`/api/v2/shares/${raced[0].shareId}`, { method: "DELETE", ...auth });
 
 // Value: protects=after SESSION_SECRET changes, the owner is told the old link can't be recovered and a re-share mints a working one;

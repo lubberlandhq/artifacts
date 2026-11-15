@@ -272,7 +272,7 @@ switch (cmd) {
     const current: string | null = registered.owner === me.email ? registered.artifact : null;
     if (!current) fd.append("title", "Whiteboard board viewer");
     const a = current ? await call("POST", `/artifacts/${current}/versions`, fd) : await call("POST", "/artifacts", fd);
-    await call("PUT", "/whiteboard/viewer", { artifact: a.id, version: a.live_version });
+    await call("PUT", "/whiteboard/viewer", { artifact: a.id, version: a.published_version ?? a.live_version });
     out({ ...a, registered: true }, () => `${a.url}\n  ${a.title} · v${a.live_version} · registered at this version as this server's board viewer`);
     break;
   }

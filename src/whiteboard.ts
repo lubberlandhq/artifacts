@@ -55,6 +55,7 @@ export function loginTtlSeconds(env: Pick<Env, "WHITEBOARD_LOGIN_DAYS">): number
   return Number.isFinite(days) && seconds >= 1 && days <= MAX_LOGIN_DAYS ? seconds : DEFAULT_LOGIN_DAYS * 24 * 3600;
 }
 const REQUEST_TTL_MS = 7 * 24 * 3600 * 1000;
+const CLAIM_STALE_MS = 60 * 1000; // an upload that has not stored its board by now is taken for dead
 const VIEWER_SETTING = "whiteboard_viewer";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -303,11 +304,17 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
   const requestId = body.requestId.toLowerCase();
   const now = Date.now();
 
-  // A retry of an upload that already landed answers as the first one did.
-  const prior = await env.DB.prepare("SELECT s.* FROM wb_requests r JOIN wb_shares s ON s.id = r.share_id WHERE r.owner = ? AND r.request_id = ?")
-    .bind(email, requestId)
-    .first<ShareRow>();
-  if (prior) return json({ shareId: prior.id, url: await linkForUpload(env, prior) });
+  // A request id is recorded before its board is stored (below), so a record alone proves
+  // nothing: an upload that died part-way leaves one behind. It counts as answered only when the
+  // share it names holds this version or a newer one; otherwise the retry stores the board.
+  const recorded = () =>
+    env.DB.prepare("SELECT s.*, r.created_at AS claimed_at FROM wb_requests r JOIN wb_shares s ON s.id = r.share_id WHERE r.owner = ? AND r.request_id = ?")
+      .bind(email, requestId)
+      .first<ShareRow & { claimed_at: number }>();
+  const stored = async (shareId: string) =>
+    !!(await env.DB.prepare("SELECT 1 AS ok FROM wb_revisions WHERE share_id = ? AND version >= ?").bind(shareId, bundle.version).first());
+  const prior = await recorded();
+  if (prior && (await stored(prior.id))) return json({ shareId: prior.id, url: await linkForUpload(env, prior) });
 
   const find = () =>
     env.DB.prepare("SELECT * FROM wb_shares WHERE owner = ? AND review_id = ?").bind(email, bundle.reviewId).first<ShareRow>();
@@ -336,16 +343,27 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
   // Claim the request id before anything is stored. Of two uploads racing with one id, the
   // first claim stands and the other answers with it, so a retry can never mean two boards.
   await env.DB.prepare("INSERT OR IGNORE INTO wb_requests (owner, request_id, share_id, created_at) VALUES (?, ?, ?, ?)").bind(email, requestId, share.id, now).run();
-  const claim = await env.DB.prepare("SELECT s.* FROM wb_requests r JOIN wb_shares s ON s.id = r.share_id WHERE r.owner = ? AND r.request_id = ?")
-    .bind(email, requestId)
-    .first<ShareRow>();
+  let claim = await recorded();
   const dropEmptyShare = (id: string) =>
     env.DB.prepare("DELETE FROM wb_shares WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM wb_revisions WHERE share_id = ?1)").bind(id).run();
   // An upload that failed gives its request id back, so the retry stores the board.
   const unclaim = () => env.DB.prepare("DELETE FROM wb_requests WHERE owner = ? AND request_id = ? AND share_id = ?").bind(email, requestId, share.id).run();
   if (claim && claim.id !== share.id) {
-    await dropEmptyShare(share.id);
-    return json({ shareId: claim.id, url: await linkForUpload(env, claim) });
+    // The id belongs to an upload of another board. Stored: answer with it. Not stored and
+    // recent: it may still be running, so this one waits. Not stored and old: it died, and
+    // this upload takes the id over.
+    if (await stored(claim.id)) {
+      await dropEmptyShare(share.id);
+      return json({ shareId: claim.id, url: await linkForUpload(env, claim) });
+    }
+    if (now - claim.claimed_at < CLAIM_STALE_MS) {
+      await dropEmptyShare(share.id);
+      return new Response(JSON.stringify({ error: { code: "request_in_progress" } }), { status: 409, headers: { ...HEADERS, "Retry-After": "5" } });
+    }
+    await env.DB.prepare("UPDATE wb_requests SET share_id = ?, created_at = ? WHERE owner = ? AND request_id = ? AND share_id = ?").bind(share.id, now, email, requestId, claim.id).run();
+    await dropEmptyShare(claim.id);
+    claim = await recorded();
+    if (!claim || claim.id !== share.id) return new Response(JSON.stringify({ error: { code: "request_in_progress" } }), { status: 409, headers: { ...HEADERS, "Retry-After": "5" } });
   }
 
   // One link per board; a higher saved version adds a revision, anything else changes nothing.
