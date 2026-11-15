@@ -1,6 +1,6 @@
 ---
 name: tack
-description: Publish an HTML page to an artifacts server with tack and share it, a self-hosted Claude-Artifacts-style host. Use when the person asks for a share link or says /tack or /share, when a page (report, mockup, dashboard) must reach someone outside this session, or to update, re-share, list or read comments on an existing share.
+description: Publish an HTML page or a Whiteboard board to an artifacts server with tack and share it, a self-hosted Claude-Artifacts-style host. Use when the person asks for a share link or says /tack or /share, when a page (report, mockup, dashboard) or a Whiteboard board must reach someone outside this session, or to update, re-share, list or read comments on an existing share.
 ---
 
 # /tack: pages on an artifacts server
@@ -58,6 +58,27 @@ written for one works on the other:
 - Network calls only to the page's own files (`connect-src 'self'`): bake the data in.
 - Works at phone width; 25 MB per file, 100 MB per version.
 - Holds nothing secret. Anyone the page is shared with can save it.
+
+## Whiteboard boards
+
+`tack board <review-id>` publishes a Whiteboard board (devdotfast/whiteboard) as a read-only
+page: the board as it is now, with a link to download it for Whiteboard Desktop when Desktop can
+open it. It takes a review id (exported with the `whiteboard` CLI, which must be on `PATH`) or a
+`.whiteboard` file, and the same `--id`, `--title`, `--desc`, `--label` and `--base` as `publish`.
+The title defaults to the board's and the label to its version. The page is a snapshot: publish
+again with `--id <id>` after the board changes. The first run downloads the viewer from npm.
+
+A board quotes the code it reviews. Treat sharing one like sharing that code.
+
+`tack board` gives a page with Tack's sharing: private until shared, named people or the org.
+Whiteboard's own Share button and `whiteboard share --review <id>` are different: once the
+computer is logged in to the server (`whiteboard login --origin "$TACK_URL"`, approved by the
+person in a browser), they return a `/s/…` link that **anyone holding it can read**, with no
+sign-in, and that opens as an editable copy in Whiteboard Desktop. Use that only when the person
+asks for a Whiteboard share link, and tell them it is link-readable. `whiteboard share revoke
+<share-id>` deletes it. The login lasts 90 days unless the server sets another length; when
+Whiteboard says the sign-in expired, the person logs in again. Only they can approve it, in a
+browser: `TACK_TOKEN` cannot.
 
 ## Other commands
 

@@ -198,7 +198,7 @@ $('#pickFile').addEventListener('click',()=>$('#file').click());$('#pickDir').ad
 $('#file').addEventListener('change',e=>publish([...e.target.files]));$('#dir').addEventListener('change',e=>publish([...e.target.files]));
 const drop=$('#drop');drop.addEventListener('dragover',e=>{e.preventDefault();drop.style.borderColor='var(--accent)'});drop.addEventListener('dragleave',()=>drop.style.borderColor='');
 drop.addEventListener('drop',e=>{e.preventDefault();drop.style.borderColor='';const fs=[...e.dataTransfer.files].filter(f=>/\\.html?$/i.test(f.name));if(fs.length!==1){$('#pubErr').textContent='Drop one .html file, or use Choose folder for a multi-file page.';return}publish(fs)});
-async function tokens(){const {tokens}=await api('/tokens');$('#tlist').innerHTML=tokens.map(t=>'<div class="row" style="padding:4px 0"><code>'+t.id+'</code><span style="flex:1">'+esc(t.label)+(t.owner!==ME?' <span class="chip">as '+esc(t.owner)+'</span>':'')+' <span class="muted">· last used '+(t.last_used?new Date(t.last_used).toLocaleString():'never')+'</span></span><button data-revoke="'+t.id+'">Revoke</button></div>').join('')}
+async function tokens(){const {tokens}=await api('/tokens');$('#tlist').innerHTML=tokens.map(t=>'<div class="row" style="padding:4px 0"><code>'+t.id+'</code><span style="flex:1">'+esc(t.label)+(t.owner!==ME?' <span class="chip">as '+esc(t.owner)+'</span>':'')+(t.scope?' <span class="chip">'+esc(t.scope)+' only</span>':'')+' <span class="muted">· last used '+(t.last_used?new Date(t.last_used).toLocaleString():'never')+(t.expires_at?' · expires '+new Date(t.expires_at).toLocaleDateString():'')+'</span></span><button data-revoke="'+t.id+'">Revoke</button></div>').join('')}
 $('#tnew').addEventListener('click',async()=>{try{const r=await api('/tokens',{method:'POST',body:JSON.stringify({label:$('#tlabel').value,as:($('#tas')?.value||'').trim()||undefined})});$('#tshow').style.display='block';$('#tshow').textContent='Shown once. Store it in 1Password, then set TACK_TOKEN:\\n'+r.token;tokens()}catch(x){toast(x.message)}});
 $('#tlist').addEventListener('click',async e=>{const id=e.target.dataset?.revoke;if(!id)return;await api('/tokens/'+id,{method:'DELETE'});tokens()});
 load();tokens();`;
@@ -225,4 +225,58 @@ export function devLoginPage(env: Env, next: string) {
 <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" required></div>
 <button class="primary">Sign in</button></form></main>`,
   });
+}
+
+// ---- Whiteboard share hub (src/whiteboard.ts) ------------------------------------------------
+
+// /device: a signed-in person approves the computer where `whiteboard login` shows this code.
+export function devicePage(env: Env, email: string, userCode: string | null) {
+  const main = userCode
+    ? `<h2>Sign in to Whiteboard</h2>
+<p>Whiteboard on a computer is asking to sign in to ${esc(env.ORG_NAME)}'s Tack as <b>${esc(email)}</b>.</p>
+<p class="muted">Approve only if you started this sign-in yourself and Whiteboard shows the same code.</p>
+<p style="font:600 22px ui-monospace,monospace;letter-spacing:.08em">${esc(userCode)}</p>
+<form method="post" action="/device"><input type="hidden" name="user_code" value="${esc(userCode)}">
+<div class="row"><button class="primary">Approve</button><a href="/"><button type="button">Cancel</button></a></div></form>`
+    : `<h2>Sign in to Whiteboard</h2>
+<p class="muted">Enter the code Whiteboard shows.</p>
+<form method="get" action="/device"><div class="field"><label for="user_code">Code</label>
+<input id="user_code" name="user_code" type="text" autocomplete="off" autocapitalize="characters" required></div>
+<button class="primary">Continue</button></form>`;
+  const r = page(env, { title: "Sign in to Whiteboard", body: `<main style="max-width:440px;margin:80px auto;padding:0 16px">${main}</main>` });
+  // The Approve form is a plain post, and under no-referrer a browser sends it with
+  // `Origin: null`, which the same-site check on POST /device refuses. same-origin keeps the
+  // real origin on this site's own posts and still tells other sites nothing.
+  r.headers.set("Referrer-Policy", "same-origin");
+  return r;
+}
+
+// /s/<capability>: a shared board. Anyone with the link reads it, so the page shows no account
+// controls. `frameSrc` is null when no board viewer is registered on this server.
+export function sharedBoardPage(
+  env: Env,
+  b: { title: string; sender: string; sharedAt: number; version: number; frameSrc: string | null; frameOrigin: string; openHref: string | null },
+) {
+  const title = b.title || "Whiteboard";
+  const open = b.openHref ? `<a href="${esc(b.openHref)}"><button class="primary">Open in Whiteboard</button></a>` : "";
+  const body = `
+<div style="display:flex;flex-direction:column;height:100%">
+  <div class="bar">
+    <span class="brand hide-sm">${MARK}tack</span>
+    <div class="grow"><span class="title">${esc(title)}</span>
+      <span class="sub muted">Shared by ${esc(b.sender)} · version ${b.version} · ${new Date(b.sharedAt).toISOString().slice(0, 10)}</span></div>
+    ${open}
+  </div>
+  ${
+    b.frameSrc
+      ? `<iframe src="${esc(b.frameSrc)}" title="${esc(title)}" style="flex:1;border:0;min-height:0"
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+    allow="clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>`
+      : `<main style="max-width:480px;margin:80px auto;padding:0 16px"><h2>${esc(title)}</h2>
+  <p class="muted">This server has no browser view for boards yet. ${b.openHref ? "Open the board in Whiteboard Desktop." : ""}</p></main>`
+  }
+</div>`;
+  const r = page(env, { title, body, frameOrigin: b.frameSrc ? b.frameOrigin : null });
+  r.headers.set("X-Robots-Tag", "noindex");
+  return r;
 }

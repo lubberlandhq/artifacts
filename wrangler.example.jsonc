@@ -25,6 +25,8 @@
     // Who may publish (empty = org members), and the service admins.
     "PUBLISHERS": "",
     "ADMINS": "you@example.com"
+    // Optional: days a Whiteboard login lasts before the person signs in again. Unset = 90.
+    // , "WHITEBOARD_LOGIN_DAYS": "90"
   },
 
   "routes": [

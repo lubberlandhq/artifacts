@@ -1,0 +1,10 @@
+{
+  "name": "tack-board-viewer",
+  "private": true,
+  "description": "What `tack board` builds the board viewer from. bun.lock pins these and everything they depend on; to change a version, edit it here, run `bun install` in this folder and commit both files.",
+  "dependencies": {
+    "@dev.fast/canvas": "0.5.0",
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
+  }
+}

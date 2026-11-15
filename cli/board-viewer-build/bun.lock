@@ -1,0 +1,23 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "tack-board-viewer",
+      "dependencies": {
+        "@dev.fast/canvas": "0.5.0",
+        "react": "19.2.9",
+        "react-dom": "19.2.9",
+      },
+    },
+  },
+  "packages": {
+    "@dev.fast/canvas": ["@dev.fast/canvas@0.5.0", "", { "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-6kAQAvPJUOiYCbodIJ+0QskOZaWG6/KGBOS2z6buEgfxFhyYINSxeEQjU95BM367cUhuatAqgzx30lnqVfLIaA=="],
+
+    "react": ["react@19.2.9", "", {}, "sha512-RuLdAokXv3sRmZa2/N8QH0KmTBIgDKC+buRUikGqow31+mGSGidLCX2o4XFq8OV+xBFWfhM9DVgTq1PPHADH4w=="],
+
+    "react-dom": ["react-dom@19.2.9", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.9" } }, "sha512-YceU74W21fXEHszKBLj16MY0CmvpFKOs60iVrIyW/cCgOPsZJNaB6GVJEtIUqt6AG6EjzKLui5lPRrxAeS328Q=="],
+
+    "scheduler": ["scheduler@0.27.0", "", {}, "sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=="],
+  }
+}

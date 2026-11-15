@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whiteboard</title>
+<link rel="stylesheet" href="./canvas/assets/theme.css">
+<link rel="stylesheet" href="./canvas/assets/canvas.css">
+<style>
+/* theme.css paints the page dark until the board mounts; follow the reader's setting instead. */
+:root:root { color-scheme: light dark; }
+html, body { margin: 0; height: 100%; }
+#root { height: 100%; }
+#status { position: fixed; inset: 0; margin: 0; padding: 16px; font: 14px system-ui, sans-serif; }
+#download {
+  position: fixed; right: 16px; bottom: 16px; z-index: 10;
+  padding: 6px 12px; border-radius: 8px; border: 1px solid var(--rule);
+  background: var(--surface-raised); color: var(--ink);
+  font: 13px var(--font-sans); text-decoration: none;
+  box-shadow: 0 2px 8px var(--shadow-color);
+}
+#download:hover { border-color: var(--rule-soft); }
+#download[hidden] { display: none; }
+</style>
+<script type="importmap">
+{"imports": {
+  "react": "./vendor/react.js",
+  "react/jsx-runtime": "./vendor/jsx-runtime.js",
+  "react-dom": "./vendor/react-dom.js",
+  "react-dom/client": "./vendor/react-dom-client.js",
+  "@dev.fast/canvas": "./canvas/index.js"
+}}
+</script>
+</head>
+<body>
+<div id="root" class="review-canvas-root"></div>
+<p id="status">Loading board…</p>
+<a id="download" href="./board.whiteboard" hidden>Download for Whiteboard Desktop</a>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

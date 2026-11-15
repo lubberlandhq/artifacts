@@ -4,7 +4,9 @@
 // Lines on a terminal, JSON when piped. Exit 2 usage, 4 auth, 5 API.
 //   TACK_URL    the server's APP_ORIGIN, e.g. https://share.example.com (required)
 //   TACK_TOKEN  a token from the gallery page ("Tokens for the CLI and agents")
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { homedir, tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
 
 const HELP = `tack <command> [args]
@@ -12,6 +14,12 @@ const HELP = `tack <command> [args]
   publish <file.html|dir> [--id ID] [--title T] [--desc D] [--label L] [--remove PATH]... [--base N]
         New artifact, or a new version of --id. A directory needs index.html at its root.
         A new version keeps files you leave out; --remove drops one.
+  board <review-id|file.whiteboard> [--id ID] [--title T] [--desc D] [--label L] [--base N]
+        Publish a Whiteboard board as a read-only page. A review id is exported with the
+        whiteboard CLI. The first run downloads the viewer from npm.
+  board-viewer
+        Admins: publish the board viewer and register it as the one this server shows shared
+        Whiteboard links with (/s/...). Run again to update it.
   list                                   yours and shared with you
   get <id>                               details (sharing, when you can edit)
   share <id> [--mode private|people|org|public] [--users a@x,b@y] [--editors c@z] [--pin live|current|N]
@@ -38,6 +46,8 @@ if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") {
 
 const FLAGS: Record<string, string[]> = {
   publish: ["id", "title", "desc", "label", "remove", "base"],
+  board: ["id", "title", "desc", "label", "base"],
+  "board-viewer": [],
   share: ["mode", "users", "editors", "pin"],
   rename: ["title", "desc"],
   delete: ["yes"],
@@ -83,8 +93,10 @@ async function call(method: string, path: string, body?: BodyInit | object): Pro
   } catch {
     j = { error: text.slice(0, 300) };
   }
-  if (r.status === 401 || r.status === 403) die(4, j.error ?? `HTTP ${r.status}`);
-  if (!r.ok) die(5, j.error ?? `HTTP ${r.status}`);
+  // The Whiteboard routes answer {"error":{"code"}}, the rest {"error":"message"}.
+  const why = (typeof j.error === "object" ? j.error?.code : j.error) ?? `HTTP ${r.status}`;
+  if (r.status === 401 || r.status === 403) die(4, why);
+  if (!r.ok) die(5, why);
   return j;
 }
 
@@ -100,12 +112,98 @@ function walk(dir: string): string[] {
   });
 }
 
+// Finishes a publish: the shared flags, then a new artifact or a new version of --id.
+async function send(fd: FormData, defaultTitle: string) {
+  const title = flag("title") ?? (flag("id") ? undefined : defaultTitle);
+  if (title) fd.append("title", title);
+  if (flag("desc")) fd.append("description", flag("desc")!);
+  if (flag("label")) fd.append("label", flag("label")!);
+  if (flag("base")) fd.append("base_version", flag("base")!);
+  const a = flag("id") ? await call("POST", `/artifacts/${flag("id")}/versions`, fd) : await call("POST", "/artifacts", fd);
+  out(a, () => `${a.url}\n  ${a.title} · v${a.live_version} · ${sharingLine(a)}`);
+}
+
+// Whiteboard's snapshot format, and the viewer that reads it: @dev.fast/canvas (MIT) with React.
+// Both are fetched from npm once per version into a cache and published as static files, so a
+// board page loads nothing from outside its own origin.
+const BOARD_FORMAT = "review-share/2";
+// The viewer's packages and every package they depend on are pinned by board-viewer-build/bun.lock.
+// Read only by the board commands, so the other commands work from a copy of this script alone.
+const VIEWER_BUILD = join(import.meta.dir, "board-viewer-build");
+const canvasVersion = (): string => JSON.parse(readFileSync(join(VIEWER_BUILD, "package.json"), "utf8")).dependencies["@dev.fast/canvas"];
+const REACT_ENTRIES: [string, string][] = [
+  ["react", "react"],
+  ["react/jsx-runtime", "jsx-runtime"],
+  ["react-dom", "react-dom"],
+  ["react-dom/client", "react-dom-client"],
+];
+
+async function boardViewer(): Promise<string> {
+  // One build per lockfile: a changed lock is a new folder, never a reused one.
+  if (!existsSync(join(VIEWER_BUILD, "bun.lock"))) die(2, `the board commands need ${VIEWER_BUILD} beside this script (it holds the viewer's package list and lockfile)`);
+  const VIEWER_LOCK = readFileSync(join(VIEWER_BUILD, "bun.lock"));
+  const lockId = new Bun.CryptoHasher("sha256").update(VIEWER_LOCK).digest("hex").slice(0, 12);
+  let cache = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "tack", `board-viewer-${lockId}`);
+  let site = join(cache, "site");
+  if (existsSync(join(cache, "ready"))) return site;
+  if (tty) console.error("tack: fetching the board viewer from npm (first run only)");
+  // Built in a folder of this run's own and renamed into place when complete, so two first
+  // runs never work in, or delete, each other's files.
+  const final = cache;
+  cache = `${final}.build-${process.pid}-${Date.now().toString(36)}`;
+  site = join(cache, "site");
+  mkdirSync(join(cache, "shim"), { recursive: true });
+  cpSync(join(VIEWER_BUILD, "package.json"), join(cache, "package.json"));
+  writeFileSync(join(cache, "bun.lock"), VIEWER_LOCK);
+  // Frozen: exactly the locked packages, checked against the lock's hashes, or no viewer at all.
+  const add = Bun.spawnSync([process.execPath, "install", "--frozen-lockfile"], { cwd: cache, stdout: "pipe", stderr: "pipe" });
+  if (add.exitCode !== 0) die(5, `could not fetch the board viewer from npm: ${add.stderr.toString().trim().split("\n").at(-1)}`);
+  // React ships CommonJS; the canvas imports it by name. One ES module per entry, sharing chunks,
+  // so the page's import map resolves every import to the same React.
+  const req = createRequire(join(cache, "package.json"));
+  for (const [name, file] of REACT_ENTRIES) {
+    const names = Object.keys(req(name)).filter((k) => k !== "default" && /^[A-Za-z_$][\w$]*$/.test(k));
+    writeFileSync(join(cache, "shim", `${file}.js`), `import M from "${name}";\nexport default M;\nexport const { ${names.join(", ")} } = M;\n`);
+  }
+  const built = await Bun.build({
+    entrypoints: REACT_ENTRIES.map(([, file]) => join(cache, "shim", `${file}.js`)),
+    outdir: join(site, "vendor"),
+    format: "esm",
+    splitting: true,
+    minify: true,
+    target: "browser",
+    define: { "process.env.NODE_ENV": '"production"' },
+  });
+  if (!built.success) die(5, `could not build the board viewer: ${built.logs.map(String).join("; ")}`);
+  cpSync(join(cache, "node_modules", "@dev.fast", "canvas", "dist"), join(site, "canvas"), { recursive: true });
+  rmSync(join(site, "canvas", "index.d.ts"), { force: true });
+  writeFileSync(join(cache, "ready"), "");
+  try {
+    // A folder left without its ready mark by an interrupted older run is not a build.
+    if (existsSync(final) && !existsSync(join(final, "ready"))) rmSync(final, { recursive: true, force: true });
+    renameSync(cache, final);
+  } catch {
+    // Another run finished first: its build is the same lockfile's, so use it.
+    rmSync(cache, { recursive: true, force: true });
+    if (!existsSync(join(final, "ready"))) die(5, `could not put the board viewer build in place at ${final}`);
+  }
+  return join(final, "site");
+}
+
 const MODE: Record<string, string> = { private: "owner", people: "users", org: "org", public: "public" };
 const LABEL: Record<string, string> = { owner: "only you", users: "specific people", org: "the org", public: "anyone with the link" };
 const sharingLine = (a: any) =>
   a.sharing
     ? `${LABEL[a.sharing.mode]}${a.sharing.users.length ? ` (${a.sharing.users.join(", ")})` : ""}; viewers see ${a.sharing.viewers_see}${a.sharing.pinned_version ? ` v${a.sharing.pinned_version}` : ""}${a.sharing.editors.length ? `; editors ${a.sharing.editors.join(", ")}` : ""}`
     : a.role;
+
+// The viewer's files as publish parts: the npm build, then the page that drives it.
+async function boardViewerFiles(): Promise<FormData> {
+  const fd = new FormData();
+  for (const root of [await boardViewer(), join(import.meta.dir, "board-viewer")])
+    for (const f of walk(root)) fd.append("file", new Blob([readFileSync(f)]), relative(root, f).split("\\").join("/"));
+  return fd;
+}
 
 switch (cmd) {
   case "publish": {
@@ -125,13 +223,57 @@ switch (cmd) {
       fd.append("file", new Blob([readFileSync(src)]), "index.html");
     }
     for (const r of flags.remove ?? []) fd.append("remove", r);
-    const title = flag("title") ?? (flag("id") ? undefined : basename(src).replace(/\.html?$/, ""));
-    if (title) fd.append("title", title);
-    if (flag("desc")) fd.append("description", flag("desc")!);
-    if (flag("label")) fd.append("label", flag("label")!);
-    if (flag("base")) fd.append("base_version", flag("base")!);
-    const a = flag("id") ? await call("POST", `/artifacts/${flag("id")}/versions`, fd) : await call("POST", "/artifacts", fd);
-    out(a, () => `${a.url}\n  ${a.title} · v${a.live_version} · ${sharingLine(a)}`);
+    await send(fd, basename(src).replace(/\.html?$/, ""));
+    break;
+  }
+  case "board": {
+    const src = pos[0] ?? die(2, "board needs a review id or a .whiteboard file");
+    let raw: Buffer;
+    if (existsSync(src) && statSync(src).isFile()) {
+      raw = readFileSync(src);
+    } else {
+      const tmp = mkdtempSync(join(tmpdir(), "tack-board-"));
+      const file = join(tmp, "board.whiteboard");
+      let r;
+      try {
+        r = Bun.spawnSync(["whiteboard", "export", "--review", src, "--out", file], { stdout: "pipe", stderr: "pipe" });
+      } catch {
+        die(2, `${src} is not a file, and the whiteboard CLI that would export a review is not on PATH`);
+      }
+      if (r!.exitCode !== 0 || !existsSync(file)) {
+        rmSync(tmp, { recursive: true, force: true });
+        die(2, `whiteboard export --review ${src} failed: ${r!.stderr.toString().trim().split("\n").at(-1) || `exit ${r!.exitCode}`}`);
+      }
+      raw = readFileSync(file);
+      rmSync(tmp, { recursive: true, force: true });
+    }
+    let bundle: any;
+    try {
+      bundle = JSON.parse(raw.toString());
+    } catch {
+      bundle = null;
+    }
+    if (bundle?.format !== BOARD_FORMAT) die(2, `${src} is not a Whiteboard snapshot (${BOARD_FORMAT})`);
+    const fd = await boardViewerFiles();
+    fd.append("file", new Blob([raw]), "board.whiteboard");
+    flags.label ??= [`board v${bundle.version}`];
+    await send(fd, String(bundle.title ?? "Whiteboard"));
+    break;
+  }
+  case "board-viewer": {
+    // The viewer with no board beside it: a share's page gets its board.whiteboard from the server.
+    // Checked first, so someone who can't register it doesn't publish a stray copy.
+    const me = await call("GET", "/me");
+    if (!me.admin) die(4, "only an admin registers the board viewer");
+    const fd = await boardViewerFiles();
+    fd.append("label", `canvas ${canvasVersion()}`);
+    // Update the registered viewer when it is yours; an admin registers only their own artifact.
+    const registered = await call("GET", "/whiteboard/viewer");
+    const current: string | null = registered.owner === me.email ? registered.artifact : null;
+    if (!current) fd.append("title", "Whiteboard board viewer");
+    const a = current ? await call("POST", `/artifacts/${current}/versions`, fd) : await call("POST", "/artifacts", fd);
+    await call("PUT", "/whiteboard/viewer", { artifact: a.id, version: a.published_version ?? a.live_version });
+    out({ ...a, registered: true }, () => `${a.url}\n  ${a.title} · v${a.live_version} · registered at this version as this server's board viewer`);
     break;
   }
   case "list": {

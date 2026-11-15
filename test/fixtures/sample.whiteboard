@@ -1,0 +1,25 @@
+{
+  "format": "review-share/2",
+  "reviewId": "5f602b5d-48e0-435e-8437-01dce53d7434",
+  "version": 1,
+  "title": "Sample board",
+  "snapshot": {
+    "reviewId": "5f602b5d-48e0-435e-8437-01dce53d7434",
+    "version": 1,
+    "title": "Sample board",
+    "document": [
+      {
+        "type": "markdown",
+        "markdown": "## Sample\n\nA small board for the smoke test.",
+        "id": "block-1"
+      }
+    ],
+    "createdAt": "2026-11-14T21:42:39.972Z"
+  },
+  "images": {},
+  "traces": {},
+  "maps": {},
+  "commits": [],
+  "selections": {},
+  "sources": []
+}
