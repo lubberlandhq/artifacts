@@ -27,9 +27,9 @@ button.ghost{border-color:transparent;background:transparent;color:color-mix(in 
 button.ghost:hover:not(:disabled){background:var(--chip);color:var(--ink)}
 button.ghost[data-delete]:hover:not(:disabled),button.ghost[data-revoke]:hover:not(:disabled){color:var(--warn)}
 button.sm{padding:3px 10px;min-height:28px;font-size:12.5px;border-radius:6px}
-button.quiet{border-color:var(--line);background:transparent;font-weight:500;color:color-mix(in srgb,var(--ink) 82%,var(--panel))}
+button.quiet{border-color:transparent;background:transparent;font-weight:500;color:color-mix(in srgb,var(--ink) 82%,var(--panel))}
 button.quiet:hover:not(:disabled){background:var(--chip);border-color:var(--edge);color:var(--ink)}
-.acard:hover .quiet,.trow:hover .quiet,.citem:hover .quiet{border-color:var(--edge)}
+.acard:hover .quiet,.trow:hover .quiet,.citem:hover .quiet{border-color:var(--line)}#copyLink{margin-left:-12px}
 button.quiet[data-delete]:hover:not(:disabled),button.quiet[data-revoke]:hover:not(:disabled){color:var(--warn)}
 button.danger{background:var(--danger);color:#fff;border-color:var(--danger)}
 button.danger:hover:not(:disabled){background:color-mix(in srgb,var(--danger) 86%,#000);border-color:color-mix(in srgb,var(--danger) 86%,#000)}
@@ -75,9 +75,9 @@ aside .bar{padding:8px 8px 8px 16px;min-height:48px;background:transparent}aside
 .acard:hover{background:var(--hover)}
 .amain{flex:1;min-width:0;text-decoration:none;color:inherit}.amain::after{content:"";position:absolute;inset:0}
 .atitle{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.atitle .chip{font-weight:400;margin-left:4px}
-.ameta{margin-top:2px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.achip{flex:none;min-width:140px;text-align:left}.aact{min-width:136px;justify-content:flex-end}.achip.end{min-width:0}.alist.own .achip.end{min-width:140px;margin-right:148px}
-.aact{position:relative;z-index:1;display:flex;gap:6px}.ameta .who{font-weight:500;color:color-mix(in srgb,var(--ink) 78%,var(--panel))}
+.ameta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:3px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}.ameta .chip{font-size:11.5px;padding:0 8px;color:var(--ink)}
+.achip{flex:none;min-width:140px;text-align:left}.aact{justify-content:flex-end}.achip.end{min-width:0}.alist.own .achip.end{min-width:140px;margin-right:148px}
+.aact{position:relative;z-index:1;display:flex;gap:4px}.ameta .who{font-weight:500;color:color-mix(in srgb,var(--ink) 78%,var(--panel))}
 .trow{display:flex;align-items:center;gap:12px;padding:12px 16px 12px 20px;border-top:1px solid var(--line)}
 .tmain{flex:1;min-width:0}.trow .achip{min-width:0;text-align:right}.trow .aact{min-width:0}.ameta code{font-size:12px}.tform{display:flex;flex-wrap:wrap;gap:8px;padding:14px 16px 14px 20px}.tform input{flex:1 1 200px;width:auto}.tform+#tnewbox,.tform~#tlist .trow:first-child{border-top:1px solid var(--line)}#tnewbox{padding:14px 16px 14px 20px}.alist>.err{padding:12px 20px}
 .citem{padding:10px 12px 14px 16px;border-top:1px solid var(--line)}.citem:first-child{border-top:0}.citem.done{opacity:.55}
@@ -94,7 +94,7 @@ body:has(>.solo){display:flex;flex-direction:column}
 button{min-height:40px}button.sm{min-height:36px;padding:6px 12px;font-size:13px}
 input[type=text],input[type=email],textarea{font-size:16px;min-height:44px}
 .dctl{width:100%}.dctl input[type=text]{width:100%}.dctl label{flex:1}.dctl label button{width:100%}
-.amain{flex-basis:100%}.achip{min-width:0}.aact{min-width:0;margin-left:auto}.alist.own .achip.end{min-width:0;margin-right:0}
+.amain{flex-basis:100%}.aact{margin-left:-2px}button.quiet{border-color:var(--line)}#copyLink{margin-left:0}.alist.own .achip.end{min-width:0;margin-right:0}
 .dialog,#ask{padding-top:24px}.solo{top:0;margin:28px auto auto;padding:24px}.drop{padding:16px}.solo button{min-height:44px}.solo button.primary{width:100%}#user_code{min-height:48px}.dctl button{min-height:44px}.acard{gap:6px 12px;padding:12px 16px 12px 20px}}
 `;
 
@@ -293,7 +293,7 @@ function ask(o){return new Promise(res=>{
 
 // Artifacts
 let ARTS=[];
-const card=a=>'<div class="acard"><a class="amain" href="/a/'+a.id+'"><div class="atitle">'+esc(a.title)+'</div><div class="ameta">'+(a.role==='owner'?'':'<span class="who">'+esc(a.owner)+'</span> · ')+'v'+a.live_version+' · '+when(a.updated_at)+'</div></a><span class="achip'+(a.role==='owner'?'':' end')+'"><span class="chip">'+(a.sharing?MODES[a.sharing.mode]:ROLES[a.role]||a.role)+'</span></span>'+(a.role==='owner'?'<span class="aact"><button class="sm quiet" data-rename="'+a.id+'">Rename</button><button class="sm quiet" data-delete="'+a.id+'">Delete</button></span>':'')+'</div>';
+const card=a=>'<div class="acard"><a class="amain" href="/a/'+a.id+'"><div class="atitle">'+esc(a.title)+'</div><div class="ameta"><span>'+(a.role==='owner'?'':'<span class="who">'+esc(a.owner)+'</span> · ')+'v'+a.live_version+' · '+when(a.updated_at)+'</span><span class="chip">'+(a.sharing?MODES[a.sharing.mode]:ROLES[a.role]||a.role)+'</span></div></a>'+(a.role==='owner'?'<span class="aact"><button class="sm quiet" data-rename="'+a.id+'">Rename</button><button class="sm quiet" data-delete="'+a.id+'">Delete</button></span>':'')+'</div>';
 async function load(){ARTS=(await api('/artifacts')).artifacts;$('#list').classList.remove('muted');$('#list').innerHTML=ARTS.length?'<div class="alist'+(ARTS.some(a=>a.role==='owner')?' own':'')+'">'+ARTS.map(card).join('')+'</div>':'<p>Nothing yet.</p>'}
 $('#list').addEventListener('click',async e=>{
   const rid=e.target.dataset?.rename,did=e.target.dataset?.delete,a=ARTS.find(x=>x.id===(rid||did));if(!a)return;
@@ -324,7 +324,7 @@ if(PUB){
 
 // Tokens: the newest few, the rest behind "Show all".
 let TOKS=[],allToks=false;const FEW=8;
-const trow=t=>'<div class="trow"><div class="tmain"><div class="atitle">'+esc(t.label)+'</div><div class="ameta"><code>'+t.id+'</code> · last used '+(t.last_used?when(t.last_used):'never')+(t.expires_at?' · expires '+day(t.expires_at):'')+'</div></div><span class="achip">'+(t.owner!==ME?'<span class="chip">as '+esc(t.owner)+'</span> ':'')+(t.scope?'<span class="chip">'+esc(t.scope)+' only</span>':'')+'</span><span class="aact"><button class="sm quiet" data-revoke="'+t.id+'">Revoke</button></span></div>';
+const trow=t=>'<div class="trow"><div class="tmain"><div class="atitle">'+esc(t.label)+'</div><div class="ameta"><span><code>'+t.id+'</code> · last used '+(t.last_used?when(t.last_used):'never')+(t.expires_at?' · expires '+day(t.expires_at):'')+'</span>'+(t.owner!==ME?'<span class="chip">as '+esc(t.owner)+'</span>':'')+(t.scope?'<span class="chip">'+esc(t.scope)+' only</span>':'')+'</div></div><span class="aact"><button class="sm quiet" data-revoke="'+t.id+'">Revoke</button></span></div>';
 function showTokens(){$('#tsec').hidden=!PUB&&!TOKS.length;$('#tlist').className='';$('#tlist').innerHTML=(allToks?TOKS:TOKS.slice(0,FEW)).map(trow).join('');$('#tmore').innerHTML=!allToks&&TOKS.length>FEW?'<button id="tall">Show all '+TOKS.length+'</button>':''}
 async function tokens(){TOKS=(await api('/tokens')).tokens;showTokens()}
 $('#tmore').addEventListener('click',e=>{if(e.target.id==='tall'){allToks=true;showTokens()}});
