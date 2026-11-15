@@ -179,7 +179,7 @@ one the share hub frames (section 7a).
 | `GET /api/auth/get-session` | bearer | `{user:{id, name, email}}`, all the person's email |
 | `GET /api/auth/token` | — | 404: tells the client to send its token as it is |
 | `POST /api/v2/shares` | publisher | `{requestId, bundle}` → `{shareId, url}`. The request id is recorded before anything is stored and counts as answered once its share holds that version: a retry after a failed upload stores the board, and a second board uploaded under an id still in flight gets 409 `request_in_progress` |
-| `GET /api/v2/shares` | bearer | `{items:[{shareId, reviewId, title, latestVersion, createdAt, url}], next?}`, 100 a page; `?cursor=<next>` continues, and `next` (`<createdAt>.<shareId>`) still works after that share is revoked; an admin adds `?owner=<email>` or `?owner=*` and gets each item's `owner` |
+| `GET /api/v2/shares` | bearer | `{items:[{shareId, reviewId, title, latestVersion, createdAt, url}], next?}`, 100 a page; `?cursor=<next>` continues, newest first. `next` is the last share id of the page, a UUID, which is all Whiteboard's client will send; share ids are time-ordered (UUID version 7), so an id still marks its place after that share is revoked; an admin adds `?owner=<email>` or `?owner=*` and gets each item's `owner` |
 | `GET /api/v2/shares/:id/link`, `/revisions` | owner | recover the link, list revisions |
 | `DELETE /api/v2/shares/:id` | owner or admin | revoke |
 | `GET /api/v2/shared/:cap[?rev=]`, `/bundle` | anyone | who shared it and which revision; the snapshot |

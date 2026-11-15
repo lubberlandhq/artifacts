@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { tokenLimits } from "../src/auth";
 import { canAdmin, canPublish, canRead, canWrite, isAdmin, orgPolicy, parseEmails, visibleVersion } from "../src/authz";
-import { decryptText, encryptText, randomId, seal, unseal } from "../src/crypto";
+import { decryptText, encryptText, randomId, seal, timeOrderedUuid, unseal } from "../src/crypto";
 import { contentCsp } from "../src/csp";
 import type { Artifact } from "../src/env";
 import { validPath } from "../src/store";
@@ -133,6 +133,18 @@ describe("whiteboard hub", () => {
     expect(bundleProblem({ ...ok, snapshot: [] })).not.toBeNull();
     expect(bundleProblem({ ...ok, sources: {} })).not.toBeNull();
     expect(bundleProblem(null)).not.toBeNull();
+  });
+});
+
+// Value: protects=share ids are UUIDs Whiteboard's client accepts (version 7, RFC variant) and sort by creation time;
+// fails_when=the version or variant bits are wrong (the client refuses the id), or a later id sorts before an earlier one;
+// seam=none; no_claim=order within one millisecond (random)
+describe("time-ordered share ids", () => {
+  test("version 7, and later sorts after earlier", () => {
+    const ids = [1, 2, 1_700_000_000_000, 1_800_000_000_000].map((t) => timeOrderedUuid(t));
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect([...ids].sort()).toEqual(ids);
+    expect(timeOrderedUuid(0x0123456789ab).startsWith("01234567-89ab-7")).toBe(true);
   });
 });
 

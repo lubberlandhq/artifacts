@@ -380,10 +380,15 @@ for (let cursor: string | undefined, n = 0; n < 20; n++) {
   if (!(cursor = p.next)) break;
 }
 const pagedIds: string[] = pages.flatMap((p) => (p.items ?? []).map((i: any) => i.shareId));
-check("a list of more than 100 shares comes in pages of 100", pages.length >= 2 && pages[0].items.length === 100 && pages[0].next === `${pages[0].items[99].createdAt}.${pages[0].items[99].shareId}` && pages.at(-1).next === undefined, `${pages.length} pages`);
+check("a list of more than 100 shares comes in pages of 100", pages.length >= 2 && pages[0].items.length === 100 && pages[0].next === pages[0].items[99].shareId && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(pages[0].next) && pages[0].items.every((it: any, n: number, all: any[]) => n === 0 || all[n - 1].createdAt >= it.createdAt) && pages.at(-1).next === undefined, `${pages.length} pages`);
 check("…that together hold every share exactly once", new Set(pagedIds).size === pagedIds.length && many.every((s) => pagedIds.includes(s)) && pagedIds.includes(first.shareId), `${pagedIds.length} listed, ${new Set(pagedIds).size} distinct`);
 const badCursor = await wb("/api/v2/shares?cursor=not-a-share", auth);
-check("a cursor that is not a share of theirs is refused", badCursor.status === 400 && (await errCode(badCursor)) === "invalid_request" && (await wb(`/api/v2/shares?cursor=${crypto.randomUUID()}`, auth)).status === 400);
+check("a cursor that is not a UUID is refused", badCursor.status === 400 && (await errCode(badCursor)) === "invalid_request" && (await wb(`/api/v2/shares?cursor=${pages[0].items[99].createdAt}.${pages[0].items[99].shareId}`, auth)).status === 400);
+// Value: protects=a made-up cursor only moves the caller through their own shares, never into someone else's;
+// fails_when=the owner filter is dropped from the cursor query; seam=none; no_claim=an admin's ?owner=* walk
+const madeUp = await wb("/api/v2/shares?cursor=ffffffff-ffff-7fff-bfff-ffffffffffff", { headers: { Authorization: `Bearer ${tenantTok.token}` } });
+const madeUpItems: any[] = madeUp.status === 200 ? ((await madeUp.json()) as any).items : [{ shareId: many[0] }];
+check("a made-up cursor lists only the caller's own shares", madeUp.status === 200 && !madeUpItems.some((i) => pagedIds.includes(i.shareId)), `${madeUp.status} ${madeUpItems.length}`);
 // Value: protects=a listing goes on after the share its page ended on is revoked, as when someone revokes page by page;
 // fails_when=the cursor is looked up as a live share again, so a revoked one answers 400;
 // seam=none; no_claim=shares added between pages (they appear on a later full listing, not mid-walk)

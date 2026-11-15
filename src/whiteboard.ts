@@ -15,7 +15,7 @@ import { createApiToken, currentUser } from "./auth";
 import { canPublish, isAdmin, orgPolicy } from "./authz";
 import { type BoardSource, contentUrl } from "./content";
 import { SECURITY_HEADERS } from "./csp";
-import { decryptText, encryptText, randomId, randomToken, sha256Hex } from "./crypto";
+import { decryptText, encryptText, randomId, randomToken, sha256Hex, timeOrderedUuid } from "./crypto";
 import type { Env } from "./env";
 import { getArtifact } from "./store";
 
@@ -326,7 +326,7 @@ async function publish(req: Request, env: Env, email: string): Promise<Response>
       "INSERT OR IGNORE INTO wb_shares (id, owner, review_id, title, cap_hash, cap_sealed, content_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
       .bind(
-        crypto.randomUUID(),
+        timeOrderedUuid(now),
         email,
         bundle.reviewId,
         bundle.title,
@@ -435,25 +435,16 @@ async function listShares(env: Env, owner: string | null, cursor: string | null,
   const PAGE = 100;
   const email = owner ?? "";
   const everyone = owner === null ? 1 : 0;
-  // The cursor spells out where the last page ended (<created_at>.<share id>), so the listing
-  // goes on even when that share was revoked between pages.
-  let after: { created_at: number; id: string } | null = null;
-  if (cursor) {
-    const m = cursor.match(/^(\d{1,16})\.([0-9a-f-]{36})$/i);
-    if (!m || !UUID.test(m[2])) return fail(400, "invalid_request");
-    after = { created_at: Number(m[1]), id: m[2].toLowerCase() };
-  }
-  const { results } = await (after
-    ? env.DB.prepare(
-        `SELECT s.*, (SELECT MAX(version) FROM wb_revisions WHERE share_id = s.id) AS latest_version FROM wb_shares s
-          WHERE (s.owner = ?1 OR ?5 = 1) AND (s.created_at < ?2 OR (s.created_at = ?2 AND s.id > ?3))
-          ORDER BY s.created_at DESC, s.id LIMIT ?4`,
-      ).bind(email, after.created_at, after.id, PAGE + 1, everyone)
-    : env.DB.prepare(
-        `SELECT s.*, (SELECT MAX(version) FROM wb_revisions WHERE share_id = s.id) AS latest_version FROM wb_shares s
-          WHERE (s.owner = ?1 OR ?3 = 1) ORDER BY s.created_at DESC, s.id LIMIT ?2`,
-      ).bind(email, PAGE + 1, everyone)
-  ).all<ShareRow & { latest_version: number | null }>();
+  // Share ids are time-ordered (timeOrderedUuid), so the listing pages by id alone, newest
+  // first. The cursor is the last id of the page before: Whiteboard's client sends only a UUID
+  // there, and an id still marks a position after its share is revoked.
+  if (cursor && !UUID.test(cursor)) return fail(400, "invalid_request");
+  const { results } = await env.DB.prepare(
+    `SELECT s.*, (SELECT MAX(version) FROM wb_revisions WHERE share_id = s.id) AS latest_version FROM wb_shares s
+      WHERE (s.owner = ?1 OR ?2 = 1) AND (?3 = '' OR s.id < ?3) ORDER BY s.id DESC LIMIT ?4`,
+  )
+    .bind(email, everyone, (cursor ?? "").toLowerCase(), PAGE + 1)
+    .all<ShareRow & { latest_version: number | null }>();
   const page = results.slice(0, PAGE);
   const items = await Promise.all(
     page.map(async (s) => {
@@ -472,7 +463,7 @@ async function listShares(env: Env, owner: string | null, cursor: string | null,
       };
     }),
   );
-  return json({ items, ...(results.length > PAGE ? { next: `${page[page.length - 1].created_at}.${page[page.length - 1].id}` } : {}) });
+  return json({ items, ...(results.length > PAGE ? { next: page[page.length - 1].id } : {}) });
 }
 
 async function revisionsOf(env: Env, shareId: string): Promise<RevisionRow[]> {

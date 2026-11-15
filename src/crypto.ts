@@ -23,6 +23,16 @@ export async function sha256Hex(data: ArrayBuffer | Uint8Array | string): Promis
 // Lowercase only: an artifact id is also a DNS label on the content domain, and DNS is
 // case-insensitive (Claude keeps a separate UUID for the same reason).
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+// A UUID whose first 48 bits are the time in milliseconds (version 7), so ids sort by creation.
+export function timeOrderedUuid(now = Date.now()): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  for (let i = 5, t = now; i >= 0; i--, t = Math.floor(t / 256)) b[i] = t % 256;
+  b[6] = (b[6] & 0x0f) | 0x70;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 export function randomId(len = 20): string {
   const out: string[] = [];
   // Rejection sampling keeps the distribution uniform (256 % 36 != 0).
