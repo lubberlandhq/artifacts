@@ -24,6 +24,10 @@ export const MAX_SHARE_BYTES = 16 * 1024 * 1024;
 const DEVICE_TTL = 600; // seconds a device code stays approvable
 const POLL_INTERVAL = 2; // seconds the client waits between polls
 const POLL_TOO_FAST_MS = 1000; // polls closer together than this are told to slow down
+// Starting a device login is anonymous, so the codes waiting for approval are capped: a few per
+// caller address, and a ceiling on the table for callers that spread over many addresses.
+export const MAX_PENDING_PER_CLIENT = 5;
+export const MAX_PENDING = 200;
 export const TOKEN_SCOPE = "whiteboard"; // what a device login's token is limited to
 // How long a device login lasts: WHITEBOARD_LOGIN_DAYS, else 90 days. When it lapses Whiteboard
 // says the sign-in expired and asks for a new one, which is one approval in the browser. A
@@ -118,9 +122,17 @@ async function deviceCode(req: Request, env: Env): Promise<Response> {
   await env.DB.prepare("DELETE FROM wb_device_codes WHERE expires < ?").bind(now).run();
   const device = randomToken(32);
   const user = newUserCode();
-  await env.DB.prepare("INSERT INTO wb_device_codes (device_hash, user_code, expires) VALUES (?, ?, ?)")
-    .bind(await sha256Hex(device), user, now + DEVICE_TTL)
+  const client = await sha256Hex(`wb-device-client\n${env.SESSION_SECRET}\n${req.headers.get("CF-Connecting-IP") ?? ""}`);
+  // One statement counts and inserts, so racing requests cannot pass the caps together.
+  const added = await env.DB.prepare(
+    `INSERT INTO wb_device_codes (device_hash, user_code, expires, client)
+     SELECT ?1, ?2, ?3, ?4
+     WHERE (SELECT COUNT(*) FROM wb_device_codes WHERE expires >= ?5) < ?6
+       AND (SELECT COUNT(*) FROM wb_device_codes WHERE client = ?4 AND expires >= ?5) < ?7`,
+  )
+    .bind(await sha256Hex(device), user, now + DEVICE_TTL, client, now, MAX_PENDING, MAX_PENDING_PER_CLIENT)
     .run();
+  if (!added.meta.changes) return new Response(JSON.stringify({ error: "slow_down" }), { status: 429, headers: { ...HEADERS, "Retry-After": "60" } });
   return json({
     device_code: device,
     user_code: user,

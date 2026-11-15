@@ -173,7 +173,7 @@ one the share hub frames (section 7a).
 
 | Route | Who | What |
 |---|---|---|
-| `POST /api/auth/device/code` | anyone | starts a device login: device code, user code, `/device?user_code=` |
+| `POST /api/auth/device/code` | anyone | starts a device login: device code, user code, `/device?user_code=`. 429 `slow_down` while the caller's address holds 5 unexpired codes, or the server 200 |
 | `GET, POST /device` | browser session | shows the user code; POST (same-origin) approves it |
 | `POST /api/auth/device/token` | device code | `authorization_pending` until approved, then `{access_token}` once |
 | `GET /api/auth/get-session` | bearer | `{user:{id, name, email}}`, all the person's email |
@@ -222,7 +222,8 @@ Rules:
   changes no share page until `tack board-viewer` registers it again. With no viewer registered, `/s/:cap` shows the
   title and the "Open in Whiteboard" button only. A board that quotes uncommitted changes
   (`frozen`) gets no button.
-- No rate limiting is implemented; use Cloudflare rules in front if the server is public.
+- The only rate limit is the cap on device codes waiting for approval (migration `0006`); use
+  Cloudflare rules in front for the rest if the server is public.
 
 Not covered: Whiteboard's hosted trace store (`/api/trace/v1`), which a login to this server also
 points at; it answers 404.

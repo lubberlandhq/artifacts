@@ -176,7 +176,9 @@ check("a file that is not a snapshot exits 2", tack(tok.token, "board", join(dir
 
 // Whiteboard share hub: Tack answers the share-service protocol that `whiteboard login --origin`
 // and `whiteboard share` speak. These are the requests that client sends, in its order.
-const wb = (path: string, init: RequestInit = {}) => fetch(`${APP}${path}`, init);
+// Each run calls from its own address, so device codes left by earlier runs don't count against it.
+const RUN_ADDRESS = `203.0.113.${1 + Math.floor(Math.random() * 250)}`;
+const wb = (path: string, init: RequestInit = {}) => fetch(`${APP}${path}`, { ...init, headers: { "CF-Connecting-IP": RUN_ADDRESS, ...((init.headers as Record<string, string>) ?? {}) } });
 const wbJson = (path: string, body: unknown, token?: string) =>
   wb(path, { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
 const errCode = async (r: Response) => ((await r.json()) as any)?.error?.code;
@@ -310,6 +312,16 @@ check("the frozen share is revoked", (await wb(`/api/v2/shares/${frozen.shareId}
 check("an oversized device request is refused unread", ((await (await wbJson("/api/auth/device/code", { client_id: "x".repeat(64 * 1024) })).json()) as any).error === "invalid_request");
 check("a device request without a client id is refused", ((await (await wbJson("/api/auth/device/code", { scope: "identity" })).json()) as any).error === "invalid_request");
 const dc: any = await (await wbJson("/api/auth/device/code", { client_id: "review-cli" })).json();
+// Value: protects=an anonymous caller cannot pile up device codes: one address holds five at a time;
+// fails_when=the per-address cap is dropped, counts expired or other callers' codes, or refuses with a 2xx;
+// seam=none; no_claim=the server-wide ceiling of 200 and the cap lifting after ten minutes
+const fromAddress = (ip: string) => wb("/api/auth/device/code", { method: "POST", headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip }, body: JSON.stringify({ client_id: "review-cli" }) });
+const flood = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+const floodCodes: number[] = [];
+for (let i = 0; i < 6; i++) floodCodes.push((await fromAddress(flood)).status);
+const refused = await fromAddress(flood);
+check("one address gets five device codes, then is told to slow down", floodCodes.join() === "200,200,200,200,200,429" && refused.headers.get("retry-after") === "60" && ((await refused.json()) as any).error === "slow_down", floodCodes.join());
+check("another address still gets a code", (await fromAddress(`192.0.2.${1 + Math.floor(Math.random() * 250)}`)).status === 200);
 check("a wrong grant type is refused", ((await (await wbJson("/api/auth/device/token", { grant_type: "password", device_code: dc.device_code })).json()) as any).error === "invalid_request");
 // Three polls back to back: wherever a second boundary falls, two of them share a second.
 const polls: string[] = [];
