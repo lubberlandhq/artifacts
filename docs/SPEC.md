@@ -27,7 +27,8 @@ artifact's storage. Claude does the same with `<uuid>.frame.claudeusercontent.co
 
 The content domain serves content and nothing else. A request whose host is `CONTENT_DOMAIN` itself
 or any label under it that is not a content id (20 lowercase letters and digits) gets a bare 404 with
-the content security headers, for every method and path, before the login or app host sees it. So
+the content security headers, for every method and path, before the login or app host sees it,
+whatever port the request names (Cloudflare also proxies ports such as 8443). So
 `https://x.<CONTENT_DOMAIN>/api/...` never reaches the API, and no rule on the app's zone has to
 cover those names. The one exception is a dev setup whose app or login host is the content domain
 itself (`wrangler.dev.jsonc` runs both on `localhost:8787`): those exact hosts stay the app's.
