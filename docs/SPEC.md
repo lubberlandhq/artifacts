@@ -25,6 +25,13 @@ Every artifact gets its own browser origin on a registrable domain apart from th
 scripts therefore cannot read the app's cookies, call the API as the viewer, or reach another
 artifact's storage. Claude does the same with `<uuid>.frame.claudeusercontent.com`.
 
+The content domain serves content and nothing else. A request whose host is `CONTENT_DOMAIN` itself
+or any label under it that is not a content id (20 lowercase letters and digits) gets a bare 404 with
+the content security headers, for every method and path, before the login or app host sees it. So
+`https://x.<CONTENT_DOMAIN>/api/...` never reaches the API, and no rule on the app's zone has to
+cover those names. The one exception is a dev setup whose app or login host is the content domain
+itself (`wrangler.dev.jsonc` runs both on `localhost:8787`): those exact hosts stay the app's.
+
 ## 2. Identity and sign-in
 
 - **Browser.** `/login` on the app host redirects to `LOGIN_ORIGIN/login`. Access authenticates

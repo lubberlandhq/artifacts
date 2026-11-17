@@ -77,6 +77,12 @@ const forged = frame.src.replace(/\/t\/([^/]+)\//, (_: string, g: string) => `/t
 check("forged grant: 404", (await content(forged)).status === 404);
 const otherOrigin = frame.src.replace(`${id}.`, `${"b".repeat(20)}.`);
 check("grant for one artifact fails on another's origin", (await content(otherOrigin)).status === 404);
+// The rest of the content domain is not the app: a label that is not an id gets 404 for anything.
+const stray = await fetch(`http://127.0.0.1:${port}/`, { headers: { Host: `x.localhost:${port}` } });
+check("non-id label on the content domain: GET / is 404", stray.status === 404 && (await stray.text()) === "Not found");
+const strayApi = await fetch(`http://127.0.0.1:${port}/api/auth/device/token`, { method: "POST", headers: { Host: `x.localhost:${port}`, "Content-Type": "application/json" }, body: "{}" });
+check("non-id label on the content domain: POST /api/auth/device/token is 404", strayApi.status === 404 && (await strayApi.text()) === "Not found");
+check("a real content id still serves", (await content(frame.src)).status === 200);
 
 // Private: strangers and anonymous are refused, and can't tell it exists
 check("anonymous viewer redirected to sign-in", (await fetch(`${APP}/a/${id}`, { redirect: "manual" })).status === 302);
