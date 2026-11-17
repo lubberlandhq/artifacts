@@ -160,10 +160,30 @@ const tpub = tack(tenantTok.token, "publish", join(dir, "index.html"), "--title"
 check("tenant publishes as itself", tpub.code === 0 && tpub.json.owner === "agents@dev.test");
 check("tenant can't open Nate's page", tack(tenantTok.token, "get", id).code === 5);
 check("tenant's list holds only its own", tack(tenantTok.token, "list").json.every((a: any) => a.owner === "agents@dev.test"));
+// Admins find every page in the gallery (?all=1), but only from a browser session: an admin's CLI
+// token is held by agents, which must not enumerate other tenants' pages.
+const bearer = (token: string, path: string) => fetch(`${APP}/api${path}`, { headers: { Authorization: `Bearer ${token}` } });
+const ids = (body: any): string[] => (body.artifacts as any[]).map((a) => a.id);
+const allRows: any = await (await api(nate, "/artifacts?all=1")).json();
+const tenantRow = (allRows.artifacts as any[]).find((a) => a.id === tpub.json.id);
+check("an admin session with ?all=1 lists the tenant's private page", tenantRow?.sharing?.mode === "owner" && tenantRow.owner === "agents@dev.test" && tenantRow.role === "owner" && allRows.truncated === undefined, JSON.stringify(tenantRow));
+check("…newest first", ids(allRows)[0] === tpub.json.id && ids(allRows).includes(id));
+const nateDefault: any = await (await api(nate, "/artifacts")).json();
+check("…while the admin's default list still holds only their own and shared", !ids(nateDefault).includes(tpub.json.id) && ids(nateDefault).includes(id));
+const tenantDefault = await bearer(tenantTok.token, "/artifacts");
+check("the tenant token's default list is unchanged", tenantDefault.status === 200 && ((await tenantDefault.json()) as any).artifacts.every((a: any) => a.owner === "agents@dev.test"));
+check("…and ?all=1 is 403", (await bearer(tenantTok.token, "/artifacts?all=1")).status === 403);
+check("an admin's full token with ?all=1 is 403", (await bearer(tok.token, "/artifacts?all=1")).status === 403);
+check("…and its default list is the session's", JSON.stringify(ids(await (await bearer(tok.token, "/artifacts")).json())) === JSON.stringify(ids(nateDefault)));
 check("admin can share the tenant's page", (await api(nate, `/artifacts/${tpub.json.id}/sharing`, { method: "PUT", body: JSON.stringify({ mode: "users", users: "client@acme.example" }) })).status === 200);
 tack(tok.token, "share", id, "--mode", "org");
 check("an org page stays closed to the tenant", tack(tenantTok.token, "get", id).code === 5);
 check("…and open to JJ", (await api(jj, `/artifacts/${id}`)).status === 200);
+// JJ edits `id` (above), so it is listed for them; an org page they only read is not.
+const orgPage = tack(tok.token, "publish", join(dir, "index.html"), "--title", "Org page");
+tack(tok.token, "share", orgPage.json.id, "--mode", "org");
+check("JJ (org, not an admin) opens Nate's org page but doesn't list it", (await api(jj, `/artifacts/${orgPage.json.id}`)).status === 200 && !ids(await (await api(jj, "/artifacts")).json()).includes(orgPage.json.id));
+check("…and gets 403 with ?all=1", (await api(jj, "/artifacts?all=1")).status === 403);
 
 // A Whiteboard board: the snapshot, the page that reads it, and the viewer (from npm on first run)
 const sample = join(import.meta.dir, "fixtures/sample.whiteboard");
@@ -211,7 +231,7 @@ check("the token names its person", session.user?.name === "nate@dev.test" && se
 check("no JWT exchange: the client sends its token as it is", (await wb("/api/auth/token", { headers: { Authorization: `Bearer ${wbTok}` } })).status === 404);
 // The token Whiteboard gets is for the hub only, and only a browser session can approve a code.
 const hubOnly = { headers: { Authorization: `Bearer ${wbTok}` } };
-check("a Whiteboard login token can't read or publish artifacts", (await wb("/api/artifacts", hubOnly)).status === 401 && ((await (await wb("/api/me", hubOnly)).json()) as any).email === null && tack(wbTok, "publish", join(dir, "index.html"), "--title", "Scoped").code === 4);
+check("a Whiteboard login token can't read or publish artifacts", (await wb("/api/artifacts", hubOnly)).status === 401 && (await wb("/api/artifacts?all=1", hubOnly)).status === 401 && ((await (await wb("/api/me", hubOnly)).json()) as any).email === null && tack(wbTok, "publish", join(dir, "index.html"), "--title", "Scoped").code === 4);
 const minted: any = ((await (await api(nate, "/tokens")).json()) as any).tokens.find((t: any) => t.label === "Whiteboard login" && t.scope === "whiteboard");
 const lifeDays = minted ? (Date.parse(minted.expires_at) - Date.now()) / 86_400_000 : 0;
 check("…is listed with the person's tokens, and expires in 90 days", lifeDays > 89 && lifeDays <= 90, JSON.stringify(minted));

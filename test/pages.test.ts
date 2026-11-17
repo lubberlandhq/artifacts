@@ -33,6 +33,17 @@ describe("gallery", () => {
     expect(html).toContain("const PUB=false;");
   });
 
+  test("only an admin gets everyone else's pages", async () => {
+    const admin = await galleryPage(env, "nate@example.com").text();
+    expect(admin).toContain("<h2 class=\"sec\">Everyone else's pages</h2>");
+    expect(admin).toContain("api('/artifacts?all=1')");
+    // If the first list fails, the second says so instead of loading forever.
+    expect(admin).toMatch(/load\(\)\.catch\(x=>\{[^}]*\$\('#all'\)/);
+    const other = await galleryPage(env, "client@acme.example").text();
+    expect(other).not.toContain('id="all"');
+    expect(other).not.toContain("?all=1");
+  });
+
   test("the email is escaped in the page and in the script", async () => {
     const html = await galleryPage(env, 'a"<script>@x.test').text();
     expect(html).not.toContain('a"<script>@x.test');

@@ -33,8 +33,9 @@ export async function listVersions(env: Env, id: string) {
   return results.map(({ manifest, ...v }) => ({ ...v, files: Object.keys(JSON.parse(manifest)).length }));
 }
 
-// Mine first, then everything shared with me by name or as an editor. Org- and public-mode
-// artifacts of other people are reachable by link but not listed, as on claude.ai.
+// Mine, everything I edit, and everything shared with me by name, together and newest first (the
+// 200 most recently updated). Org- and public-mode artifacts of other people are reachable by link
+// but not listed, as on claude.ai; an admin finds them with listAll.
 export async function listFor(env: Env, email: string) {
   const { results } = await env.DB.prepare(
     `SELECT a.* FROM artifacts a
@@ -46,6 +47,17 @@ export async function listFor(env: Env, email: string) {
     .bind(email)
     .all<ArtifactRow>();
   return results.map(hydrate);
+}
+
+export const LIST_ALL_LIMIT = 500;
+
+// Every artifact on the server, newest first, for an admin's gallery (GET /api/artifacts?all=1).
+// Reads one row past the limit so the caller can say the list was cut short.
+export async function listAll(env: Env): Promise<{ rows: Artifact[]; truncated: boolean }> {
+  const { results } = await env.DB.prepare("SELECT * FROM artifacts ORDER BY updated_at DESC LIMIT ?")
+    .bind(LIST_ALL_LIMIT + 1)
+    .all<ArtifactRow>();
+  return { rows: results.slice(0, LIST_ALL_LIMIT).map(hydrate), truncated: results.length > LIST_ALL_LIMIT };
 }
 
 export interface IncomingFile {

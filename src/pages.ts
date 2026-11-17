@@ -1,6 +1,7 @@
 // Server-rendered pages on the app host: the viewer shell (/a/:id), the gallery (/), and the
 // sign-in screens. Every page carries a per-response nonce CSP; scripts only call /api.
 import { canAdmin, canPublish, canWrite, describeMode, isAdmin, orgPolicy } from "./authz";
+import { LIST_ALL_LIMIT } from "./store";
 import { contentOrigin } from "./content";
 import { shellCsp } from "./csp";
 import { randomToken } from "./crypto";
@@ -248,7 +249,15 @@ export function galleryPage(env: Env, email: string) {
       : ""
   }
   <h2 class="sec"${publisher ? "" : ` style="margin-top:20px"`}>Yours and shared with you</h2>
-  <div id="list" class="muted">Loading…</div>
+  <div id="list" class="muted">Loading…</div>${
+    // An admin also finds everyone else's pages, which they may already open, rename and delete.
+    admin
+      ? `
+  <h2 class="sec">Everyone else's pages</h2>
+  <div id="all" class="muted">Loading…</div>
+  <p id="allcut" class="muted" style="margin:8px 0 0" hidden>Only the ${LIST_ALL_LIMIT} most recently updated pages are listed.</p>`
+      : ""
+  }
   <section id="tsec"${publisher ? "" : " hidden"}>
     <h2 class="sec">Tokens for the CLI and agents</h2>
     ${
@@ -294,7 +303,7 @@ function ask(o){return new Promise(res=>{
 // Artifacts
 let ARTS=[];
 const card=a=>'<div class="acard"><a class="amain" href="/a/'+a.id+'"><div class="atitle">'+esc(a.title)+'</div><div class="ameta"><span>'+(a.role==='owner'?'':'<span class="who">'+esc(a.owner)+'</span> · ')+'v'+a.live_version+' · '+when(a.updated_at)+'</span><span class="chip">'+(a.sharing?MODES[a.sharing.mode]:ROLES[a.role]||a.role)+'</span></div></a>'+(a.role==='owner'?'<span class="aact"><button class="sm quiet" data-rename="'+a.id+'">Rename</button><button class="sm quiet" data-delete="'+a.id+'">Delete</button></span>':'')+'</div>';
-async function load(){ARTS=(await api('/artifacts')).artifacts;$('#list').classList.remove('muted');$('#list').innerHTML=ARTS.length?'<div class="alist'+(ARTS.some(a=>a.role==='owner')?' own':'')+'">'+ARTS.map(card).join('')+'</div>':'<p>Nothing yet.</p>'}
+async function load(){ARTS=(await api('/artifacts')).artifacts;$('#list').classList.remove('muted');$('#list').innerHTML=ARTS.length?'<div class="alist'+(ARTS.some(a=>a.role==='owner')?' own':'')+'">'+ARTS.map(card).join('')+'</div>':'<p>Nothing yet.</p>'${admin ? ";loadOthers().catch(x=>{$('#all').classList.remove('muted');$('#all').textContent=x.message})" : ""}}
 $('#list').addEventListener('click',async e=>{
   const rid=e.target.dataset?.rename,did=e.target.dataset?.delete,a=ARTS.find(x=>x.id===(rid||did));if(!a)return;
   try{
@@ -302,7 +311,24 @@ $('#list').addEventListener('click',async e=>{
     else{if(!await ask({title:'Delete “'+a.title+'”?',body:'The page, its versions and its comments are removed, and its link stops working. This can’t be undone.',yes:'Delete',danger:true}))return;await api('/artifacts/'+a.id,{method:'DELETE'});await load();toast('Deleted')}
   }catch(x){toast(x.message)}
 });
-
+${
+  admin
+    ? `
+// Everyone else's pages (admins): the rows of ?all=1 that are not in the list above. Every row is
+// someone else's, so the card names its owner, and their private page reads "Private", not "Only you".
+let OTHERS=[];
+const ocard=a=>'<div class="acard"><a class="amain" href="/a/'+a.id+'"><div class="atitle">'+esc(a.title)+'</div><div class="ameta"><span><span class="who">'+esc(a.owner)+'</span> · v'+a.live_version+' · '+when(a.updated_at)+'</span><span class="chip">'+(a.sharing.mode==='owner'?'Private':MODES[a.sharing.mode])+'</span></div></a><span class="aact"><button class="sm quiet" data-rename="'+a.id+'">Rename</button><button class="sm quiet" data-delete="'+a.id+'">Delete</button></span></div>';
+async function loadOthers(){const r=await api('/artifacts?all=1'),mine=new Set(ARTS.map(x=>x.id));OTHERS=r.artifacts.filter(x=>!mine.has(x.id));$('#all').classList.remove('muted');$('#all').innerHTML=OTHERS.length?'<div class="alist own">'+OTHERS.map(ocard).join('')+'</div>':'<p>Nothing yet.</p>';$('#allcut').hidden=!r.truncated}
+$('#all').addEventListener('click',async e=>{
+  const rid=e.target.dataset?.rename,did=e.target.dataset?.delete,a=OTHERS.find(x=>x.id===(rid||did));if(!a)return;
+  try{
+    if(rid){const t=await ask({title:'Rename',yes:'Save',input:a.title});if(!t||t===a.title)return;await api('/artifacts/'+a.id,{method:'PATCH',body:JSON.stringify({title:t})});await load();toast('Renamed')}
+    else{if(!await ask({title:'Delete “'+a.title+'”?',body:a.owner+'’s page, its versions and its comments are removed, and its link stops working. This can’t be undone.',yes:'Delete',danger:true}))return;await api('/artifacts/'+a.id,{method:'DELETE'});await load();toast('Deleted')}
+  }catch(x){toast(x.message)}
+});
+`
+    : ""
+}
 // Publish. entries: [[path inside the page, File]]; name: the title when the Title box is empty.
 async function publish(entries,name){if(publish.busy)return;$('#pubErr').textContent='';const fd=new FormData();for(const [p,f] of entries){if(p.split('/').some(s=>s.startsWith('.')))continue;fd.append('file',f,p)}fd.append('title',$('#ptitle').value.trim()||name||'Untitled');const btns=[$('#pickFile'),$('#pickDir')];publish.busy=true;btns.forEach(b=>b.disabled=true);try{const a=await api('/artifacts',{method:'POST',body:fd});location.href='/a/'+a.id}catch(x){publish.busy=false;btns.forEach(b=>b.disabled=false);$('#pubErr').textContent=x.message}}
 const publishFile=f=>publish([['index.html',f]],f.name.replace(/\\.html?$/i,''));
@@ -332,7 +358,7 @@ let NEWTOK='';
 $('#tnew')?.addEventListener('click',async()=>{try{const r=await api('/tokens',{method:'POST',body:JSON.stringify({label:$('#tlabel').value,as:($('#tas')?.value||'').trim()||undefined})});NEWTOK=r.token;$('#tnewbox').hidden=false;$('#tshow').textContent='Shown once. Store it in 1Password, then set TACK_TOKEN:\\n'+r.token;$('#tlabel').value='';await tokens()}catch(x){toast(x.message)}});
 $('#tcopy')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(NEWTOK);toast('Token copied')}catch(x){toast(x.message)}});
 $('#tlist').addEventListener('click',async e=>{const id=e.target.dataset?.revoke,t=TOKS.find(x=>x.id===id);if(!t)return;if(!await ask({title:'Revoke “'+t.label+'”?',body:'Anything using this token stops working right away.',yes:'Revoke',danger:true}))return;try{await api('/tokens/'+id,{method:'DELETE'});await tokens();toast('Revoked')}catch(x){toast(x.message)}});
-load().catch(x=>{$('#list').textContent=x.message});tokens().catch(x=>{$('#tsec').hidden=false;$('#tlist').className='err';$('#tlist').textContent=x.message});`;
+load().catch(x=>{$('#list').textContent=x.message${admin ? ";$('#all').classList.remove('muted');$('#all').textContent=x.message" : ""}});tokens().catch(x=>{$('#tsec').hidden=false;$('#tlist').className='err';$('#tlist').textContent=x.message});`;
 
   return page(env, { title: "Tack", body, script });
 }
