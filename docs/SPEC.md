@@ -59,7 +59,7 @@ Service-wide roles come from deploy configuration:
 |---|---|---|
 | org member | `ORG_EMAILS`, `ORG_DOMAINS` | readers of artifacts shared in `org` mode |
 | publisher | `PUBLISHERS` (empty = org members) | may create artifacts |
-| admin | `ADMINS` | may administer every artifact; may mint tokens `as` a publisher |
+| admin | `ADMINS` | may administer every artifact; finds every artifact in the gallery (signed in on the web only); may mint tokens `as` a publisher |
 
 Per-artifact roles:
 
@@ -78,6 +78,7 @@ Per-artifact roles:
 | list versions, files; open any version | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | publish a new version | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | change sharing, rename, delete | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| find it in the gallery without the link | ✅ | ✅ (web session) | ✅ | `users` mode only | ❌ | ❌ |
 
 Implemented as pure functions in `src/authz.ts` (`canRead`, `canWrite`, `canAdmin`,
 `visibleVersion`) so the rules are unit-tested without a Worker.
@@ -121,7 +122,7 @@ All under `APP_ORIGIN/api`, JSON in and out.
 | `GET /tokens` | session | rows the caller owns or created |
 | `POST /tokens` | session | `{label, as?}`; `as` admin-only and must be a publisher; returns the token once |
 | `DELETE /tokens/:id` | session | owner or creator |
-| `GET /artifacts` | signed in | owned, editor of, or named in `users` mode |
+| `GET /artifacts` | signed in | owned, editor of, or named in `users` mode, newest first (200 at most). `?all=1`: every artifact on the server, newest first, 500 at most, with `truncated: true` when there are more; admin with a browser session only, 403 for anyone else and for any token (an admin's CLI token is held by agents) |
 | `POST /artifacts` | publisher | multipart: `file` parts (name = published path), `title`, `description`, `label` |
 | `GET /artifacts/:id` | viewer | public view of the artifact for this caller |
 | `PATCH /artifacts/:id` | owner, admin | `{title?, description?}` |

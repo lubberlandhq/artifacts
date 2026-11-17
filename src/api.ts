@@ -13,6 +13,7 @@ import {
   getManifest,
   type IncomingFile,
   listComments,
+  listAll,
   listFor,
   listVersions,
   PublishError,
@@ -133,9 +134,16 @@ export async function handleApi(req: Request, env: Env, url: URL): Promise<Respo
 
     if (parts[0] !== "artifacts") return err(404, "no such endpoint");
 
-    // GET /api/artifacts — mine and shared with me
+    // GET /api/artifacts — mine, those I edit, and those shared with me by name (listFor).
+    // ?all=1 — every artifact on the server, for an admin signed in on the web only: an admin's
+    // CLI token is held by agents, which must not enumerate other tenants' pages.
     if (parts.length === 1 && method === "GET") {
       if (!email) return err(401, "sign in");
+      if (url.searchParams.has("all")) {
+        if (!isAdmin(policy, email) || user?.via !== "session") return err(403, "only an admin signed in on the web lists every artifact");
+        const { rows, truncated } = await listAll(env);
+        return json({ artifacts: rows.map((a) => publicView(env, a, email)), ...(truncated ? { truncated: true } : {}) });
+      }
       const rows = await listFor(env, email);
       return json({ artifacts: rows.map((a) => publicView(env, a, email)) });
     }
