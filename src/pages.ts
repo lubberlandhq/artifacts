@@ -358,7 +358,7 @@ let NEWTOK='';
 $('#tnew')?.addEventListener('click',async()=>{try{const r=await api('/tokens',{method:'POST',body:JSON.stringify({label:$('#tlabel').value,as:($('#tas')?.value||'').trim()||undefined})});NEWTOK=r.token;$('#tnewbox').hidden=false;$('#tshow').textContent='Shown once. Store it in 1Password, then set TACK_TOKEN:\\n'+r.token;$('#tlabel').value='';await tokens()}catch(x){toast(x.message)}});
 $('#tcopy')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(NEWTOK);toast('Token copied')}catch(x){toast(x.message)}});
 $('#tlist').addEventListener('click',async e=>{const id=e.target.dataset?.revoke,t=TOKS.find(x=>x.id===id);if(!t)return;if(!await ask({title:'Revoke “'+t.label+'”?',body:'Anything using this token stops working right away.',yes:'Revoke',danger:true}))return;try{await api('/tokens/'+id,{method:'DELETE'});await tokens();toast('Revoked')}catch(x){toast(x.message)}});
-load().catch(x=>{$('#list').textContent=x.message});tokens().catch(x=>{$('#tsec').hidden=false;$('#tlist').className='err';$('#tlist').textContent=x.message});`;
+load().catch(x=>{$('#list').textContent=x.message${admin ? ";$('#all').classList.remove('muted');$('#all').textContent=x.message" : ""}});tokens().catch(x=>{$('#tsec').hidden=false;$('#tlist').className='err';$('#tlist').textContent=x.message});`;
 
   return page(env, { title: "Tack", body, script });
 }
