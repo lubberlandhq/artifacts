@@ -272,8 +272,10 @@ real `wrangler.jsonc` outside this repo (it is gitignored here) and copies it in
 Bindings: D1 `DB`, R2 `BLOBS`, and the optional version metadata binding `CF_VERSION_METADATA`
 (`"version_metadata": {"binding": "CF_VERSION_METADATA"}`), which `GET /api/version` and the
 gallery's muted "tack <commit>" line read. Deploy with `wrangler deploy --tag <short commit>`: the
-tag is the commit shown. Without the binding, or with no tag, the gallery shows no stamp. Routes: the app and login hosts as custom domains, and
-`*.<CONTENT_DOMAIN>/*` on the content zone (which needs a proxied wildcard DNS record).
+tag is the commit shown. Without the binding, or with no tag, the gallery shows no stamp.
+
+Routes: the app and login hosts as custom domains, and `*.<CONTENT_DOMAIN>/*` on the content zone
+(which needs a proxied wildcard DNS record).
 
 ## 10. Tests
 

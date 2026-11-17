@@ -65,6 +65,14 @@ describe("the build stamp", () => {
     expect(await r.json()).toEqual({ commit: "4e209d8", version_id: meta.id, uploaded_at: meta.timestamp });
   });
 
+  test("a trailing slash answers too; any other method does not get the stamp", async () => {
+    const slash = await worker.fetch(new Request("https://share.example.com/api/version/"), stamped);
+    expect((await slash.json()).commit).toBe("4e209d8");
+    // A POST goes on to the signed-in routes, which look up the caller (D1) instead of answering.
+    const post = await get(stamped, { method: "POST" }).catch(() => null);
+    expect(post === null || !(await post.text()).includes("4e209d8")).toBe(true);
+  });
+
   test("an empty tag gives a null commit", async () => {
     const r = await get({ ...env, CF_VERSION_METADATA: { ...meta, tag: "" } } as Env);
     expect(await r.json()).toEqual({ commit: null, version_id: meta.id, uploaded_at: meta.timestamp });
@@ -109,6 +117,7 @@ describe("the shared board page", () => {
     expect(html).toContain('<a class="brand mini" href="/">');
     expect(html).not.toContain('<span class="brand mini">');
     expect(html).not.toContain("/logout");
+    expect(html).not.toContain("Sign out");
   });
 });
 
