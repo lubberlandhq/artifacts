@@ -5,18 +5,27 @@ rename, lubberlandhq/artifacts#2). This is the list of what that merge left undo
 knowingly imperfect. `docs/SPEC.md` §7a describes what was built; the PR body holds the review
 record.
 
-Nothing here is deployed yet.
+Deployed to share.lubberland.com on 2026-11-17: the `lubberland-share` Worker's version 10 went
+live at 17:29 UTC, at `main` commit `7a51d21`.
 
-## Before the first deploy
+## The first deploy
 
-1. Apply migrations `0003` through `0006` before `wrangler deploy`. The Worker reads the token
-   columns `0004` and `0005` add on every request made with a token, and writes the column
-   `0006` adds on every `whiteboard login`.
-2. Run `tack board-viewer` once as an admin, so share pages have a viewer to frame.
-3. Update `cli/tack` wherever it is installed, together with the server. A copy from before
-   the merge publishes a stray version of the viewer artifact and then gets `invalid_request`
-   from `PUT /api/whiteboard/viewer`, which now requires a version.
-4. Put a Cloudflare rate-limit rule on `/api/auth/device/*`. The app caps unapproved device
+Done on 2026-11-17:
+
+1. Migrations `0003` through `0006` were applied at 17:29 UTC, just before `wrangler deploy`.
+   The Worker reads the token columns `0004` and `0005` add on every request made with a
+   token, and writes the column `0006` adds on every `whiteboard login`.
+2. `tack board-viewer` was run as an admin, so share pages have a viewer to frame. The viewer
+   is artifact `iwur9fkr1yv97ixnxbnj`, registered at version 1.
+3. `cli/tack` is at `7a51d21` on the laptop (`~/Projects/artifacts`) and in the mini's release
+   (`host/artifacts.pin` in fleet-infra). A copy from before the merge publishes a stray
+   version of the viewer artifact and then gets `invalid_request` from
+   `PUT /api/whiteboard/viewer`, which now requires a version.
+
+Still open:
+
+4. Put a Cloudflare rate-limit rule on `/api/auth/device/*`. Whether one exists was not
+   checked on 2026-11-17. The app caps unapproved device
    codes at 5 per caller address (per /64 for IPv6) and 200 on the server, but a caller with 40
    or more addresses or networks can hold all 200 and block new Whiteboard logins for as long
    as it keeps going. Existing logins keep working. No cap inside the app stops that.
@@ -32,9 +41,13 @@ nor its expiry.
   `whiteboard` command line, or a test script.
 - **Whether Whiteboard Desktop displays a board it opened from a link.** In a hand test over
   https, "Open in Whiteboard" made Desktop fetch the share and its snapshot (seen in the server
-  log); what it then showed was not recorded.
-- **Production.** `whiteboard login` with a real Cloudflare Access sign-in, and the share page
-  framing a board from a per-share content host, have only run against `wrangler dev`.
+  log); what it then showed was not recorded. One report from a Windows user: a board
+  downloaded from the browser view's download link did not open in Whiteboard Desktop. Which
+  board, which version of Desktop and what error were not recorded.
+- **Production, partly.** On 2026-11-17 `whiteboard login --origin https://share.lubberland.com`
+  succeeded from the laptop, `whiteboard share` returned a `/s/` link, and that page framed
+  the board from its per-share content host once the viewer was registered. The "Open in
+  Whiteboard" button on that page has not been tried.
 - **Whiteboard's client paging past 100 shares.** The list cursor is a share id because the
   client refuses anything but a UUID there; the smoke test mirrors that check in a pattern and
   does not run the client itself.
@@ -117,6 +130,6 @@ Tests and wording:
 - **Repo name.** The service is called Tack and the repository is still `artifacts`. A rename
   touches the GitHub repository, every checkout's remote, and the references in `README.md`,
   `docs/` and `skills/tack/SKILL.md`.
-- **The laptop used for the hand test.** Its Whiteboard is still logged in to a local test
-  server that has been shut down. Run `whiteboard login --origin <the server it should use>`
-  there.
+- **The laptop used for the hand test.** Done 2026-11-17: its Whiteboard is logged in to
+  https://share.lubberland.com. Before that it was logged in to a local test server that had
+  been shut down, and `whiteboard whoami` answered "Could not reach the hosted trace store".
