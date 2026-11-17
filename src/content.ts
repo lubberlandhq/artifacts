@@ -35,9 +35,25 @@ export function contentIdFromHost(env: Env, host: string): string | null {
   return /^[a-z0-9]{20}$/.test(label) ? label : null;
 }
 
+// Any host on CONTENT_DOMAIN: the bare domain or any label under it, id or not. Only content is
+// served there, so the router answers 404 to the rest before the app or login host can see it.
+// Dev runs the app on the content domain itself (localhost:8787); the router exempts the app and
+// login hosts by name, so this only matters where they differ. The host is matched with and
+// without its port: CONTENT_DOMAIN carries one in dev (localhost:8787), and Cloudflare also
+// proxies ports such as 8443, so x.<content domain>:8443 is on the content domain too.
+export function onContentDomain(env: Env, host: string): boolean {
+  const domain = env.CONTENT_DOMAIN.toLowerCase().replace(/\.$/, "");
+  if (!domain) return false;
+  const h = host.toLowerCase();
+  return [h, h.replace(/:\d+$/, "")].some((name) => {
+    const n = name.replace(/\.$/, "");
+    return n === domain || n.endsWith(`.${domain}`);
+  });
+}
+
 export const BOARD_FILE = "board.whiteboard";
 
-const notFound = () => new Response("Not found", { status: 404, headers: SECURITY_HEADERS });
+export const notFound = () => new Response("Not found", { status: 404, headers: SECURITY_HEADERS });
 
 export async function serveContent(req: Request, env: Env, id: string): Promise<Response> {
   if (req.method !== "GET" && req.method !== "HEAD") return new Response("Method not allowed", { status: 405 });

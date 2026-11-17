@@ -2,10 +2,11 @@
 //   APP_ORIGIN      share.example.com            viewer shell, gallery, API (public; the Worker authorizes)
 //   LOGIN_ORIGIN    share-login.example.com      behind Cloudflare Access; turns an Access login into a session
 //   CONTENT_DOMAIN  <id>.<content domain>        each artifact's own origin, served only with a grant
+//                   (any other name on the content domain answers 404, whatever the method or path)
 import { handleApi } from "./api";
 import { clearSessionCookie, currentUser, mintHandoff, redeemHandoff, safeNext, sessionCookie, verifyAccessJwt } from "./auth";
 import { canRead, orgPolicy, visibleVersion } from "./authz";
-import { contentIdFromHost, contentOrigin, contentUrl, serveContent } from "./content";
+import { contentIdFromHost, contentOrigin, contentUrl, notFound, onContentDomain, serveContent } from "./content";
 import type { Env } from "./env";
 import { devicePage, devLoginPage, galleryPage, messagePage, sharedBoardPage, viewerPage } from "./pages";
 import { getArtifact } from "./store";
@@ -13,6 +14,8 @@ import { approveDevice, devicePending, handleWhiteboardApi, isWhiteboardApi, nor
 
 const redirect = (location: string, cookie?: string) =>
   new Response(null, { status: 302, headers: { Location: location, "Cache-Control": "no-store", ...(cookie ? { "Set-Cookie": cookie } : {}) } });
+
+const hostOf = (origin: string) => (origin ? new URL(origin).host : "");
 
 const withStatus = (r: Response, status: number) => new Response(r.body, { status, headers: r.headers });
 
@@ -127,6 +130,9 @@ export default {
     const url = new URL(req.url);
     const id = contentIdFromHost(env, url.host);
     if (id) return serveContent(req, env, id);
+    // The rest of the content domain is no one's origin: 404 for every method and path, so the
+    // app's API and pages never answer on a hostname meant to keep pages away from them.
+    if (onContentDomain(env, url.host) && url.host !== hostOf(env.APP_ORIGIN) && url.host !== hostOf(env.LOGIN_ORIGIN)) return notFound();
     if (env.LOGIN_ORIGIN && url.origin === env.LOGIN_ORIGIN) return loginHost(req, env, url);
     return appHost(req, env, url);
   },
