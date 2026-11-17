@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   // A deployment's config. Copy to wrangler.jsonc (gitignored), fill in, and deploy with
-  // `wrangler d1 migrations apply DB --remote && wrangler deploy`. docs/SPEC.md §9 explains each value.
+  // `wrangler d1 migrations apply DB --remote && wrangler deploy --tag <short commit>`. docs/SPEC.md §9 explains each value.
   "name": "artifacts",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-18",
@@ -38,5 +38,9 @@
 
   // `wrangler d1 create artifacts` prints the id; `wrangler r2 bucket create artifacts`.
   "d1_databases": [{ "binding": "DB", "database_name": "artifacts", "database_id": "<d1 database id>", "migrations_dir": "migrations" }],
-  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "artifacts" }]
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "artifacts" }],
+
+  // The running version's id, tag and upload time, for GET /api/version and the gallery's stamp.
+  // Deploy with `wrangler deploy --tag <short commit>`: the tag is the commit shown.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" }
 }

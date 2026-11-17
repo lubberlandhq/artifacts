@@ -6,6 +6,7 @@ import { contentOrigin } from "./content";
 import { shellCsp } from "./csp";
 import { randomToken } from "./crypto";
 import type { Artifact, Env } from "./env";
+import { versionInfo } from "./version";
 
 export const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -232,6 +233,7 @@ export function galleryPage(env: Env, email: string) {
   const admin = isAdmin(policy, email);
   // Someone who can't publish gets no publish zone and no token form: both would only answer "not a publisher".
   const publisher = canPublish(policy, email);
+  const commit = versionInfo(env).commit;
   const body = `
 <div class="bar fit"><span class="brand">${MARK}<span class="wm">tack</span></span><span class="grow"></span><span class="muted hide-sm">${esc(email)}</span><a href="/logout"><button class="ghost">Sign out</button></a></div>
 <main style="max-width:960px;margin:0 auto;padding:24px 16px 56px">
@@ -271,7 +273,8 @@ export function galleryPage(env: Env, email: string) {
     }
     <div id="tlist"></div></div>
     <div id="tmore" style="margin-top:8px"></div>
-  </section>
+  </section>${commit ? `
+  <p class="muted" style="margin:40px 0 0;font-size:12px">tack ${esc(commit)}</p>` : ""}
 </main>
 <div id="ask" class="dialog" role="dialog" aria-modal="true" aria-labelledby="askTitle"><div class="card">
   <h2 id="askTitle"></h2>
@@ -419,7 +422,7 @@ export function sharedBoardPage(
   const body = `
 <div style="display:flex;flex-direction:column;height:100%">
   <div class="bar">
-    <span class="brand mini">${MARK}<span class="wm">tack</span></span><span class="vr hide-sm" aria-hidden="true"></span>
+    <a class="brand mini" href="/">${MARK}<span class="wm">tack</span></a><span class="vr hide-sm" aria-hidden="true"></span>
     <div class="grow"><span class="title">${esc(title)}</span>
       <span class="sub muted">Shared by ${esc(b.sender)} · version ${b.version} · ${new Date(b.sharedAt).toISOString().slice(0, 10)}</span></div>
     ${open}

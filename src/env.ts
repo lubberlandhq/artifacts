@@ -28,6 +28,9 @@ export interface Env {
   DEV_LOGIN?: string; // "1" only in .dev.vars: a pick-your-email login for wrangler dev
   // Days a Whiteboard login lasts before the person signs in again (src/whiteboard.ts). Unset = 90.
   WHITEBOARD_LOGIN_DAYS?: string;
+  // Cloudflare's version_metadata binding: {id, tag, timestamp} of the running Worker version.
+  // The deploy sets tag to the short commit. Absent in tests and wherever it isn't bound.
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
 }
 
 export type Mode = "owner" | "users" | "org" | "public";
