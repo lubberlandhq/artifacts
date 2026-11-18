@@ -20,5 +20,7 @@
     "ADMINS": "nate@dev.test"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "artifacts-dev", "database_id": "local", "migrations_dir": "migrations" }],
-  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "artifacts-dev" }]
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "artifacts-dev" }],
+  // wrangler dev fills this with a random id, an empty tag and the start time.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" }
 }

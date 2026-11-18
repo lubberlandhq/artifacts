@@ -21,6 +21,7 @@ import {
   resolveComment,
   setSharing,
 } from "./store";
+import { versionInfo } from "./version";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body, null, 2), {
@@ -83,6 +84,9 @@ async function readPublish(req: Request) {
 }
 
 export async function handleApi(req: Request, env: Env, url: URL): Promise<Response> {
+  // GET /api/version: the build stamp. Answered before sign-in is looked up, so it never reads D1.
+  if (req.method === "GET" && url.pathname.replace(/\/+$/, "") === "/api/version") return json(versionInfo(env));
+
   const user = await currentUser(req, env);
   const email = user?.email ?? null;
   const policy = orgPolicy(env);

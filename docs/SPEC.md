@@ -118,6 +118,7 @@ All under `APP_ORIGIN/api`, JSON in and out.
 
 | Method and path | Who | Notes |
 |---|---|---|
+| `GET /version` | anyone | `{commit, version_id, uploaded_at}` from the `CF_VERSION_METADATA` binding: the version's tag (the short commit the deploy passes), its id, and when it was uploaded (not when it went live). Each is `null` when the binding is missing or the field is empty. Answered before sign-in is looked up, so it never reads D1; no CORS headers |
 | `GET /me` | signed in | `{email, can_publish, admin}` |
 | `GET /tokens` | session | rows the caller owns or created |
 | `POST /tokens` | session | `{label, as?}`; `as` admin-only and must be a publisher; returns the token once |
@@ -268,8 +269,13 @@ real `wrangler.jsonc` outside this repo (it is gitignored here) and copies it in
 | `WHITEBOARD_LOGIN_DAYS` | optional; days a Whiteboard login lasts, default `90`; a value outside one second to 3650 days counts as unset |
 | `DEV_LOGIN` | `"1"` only in `.dev.vars` |
 
-Bindings: D1 `DB`, R2 `BLOBS`. Routes: the app and login hosts as custom domains, and
-`*.<CONTENT_DOMAIN>/*` on the content zone (which needs a proxied wildcard DNS record).
+Bindings: D1 `DB`, R2 `BLOBS`, and the optional version metadata binding `CF_VERSION_METADATA`
+(`"version_metadata": {"binding": "CF_VERSION_METADATA"}`), which `GET /api/version` and the
+gallery's muted "tack <commit>" line read. Deploy with `wrangler deploy --tag <short commit>`: the
+tag is the commit shown. Without the binding, or with no tag, the gallery shows no stamp.
+
+Routes: the app and login hosts as custom domains, and `*.<CONTENT_DOMAIN>/*` on the content zone
+(which needs a proxied wildcard DNS record).
 
 ## 10. Tests
 

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Env } from "../src/env";
 import { onContentDomain } from "../src/content";
 import worker from "../src/index";
-import { galleryPage, messagePage } from "../src/pages";
+import { galleryPage, messagePage, sharedBoardPage } from "../src/pages";
 
 const env = {
   APP_ORIGIN: "https://share.example.com",
@@ -47,6 +47,77 @@ describe("gallery", () => {
   test("the email is escaped in the page and in the script", async () => {
     const html = await galleryPage(env, 'a"<script>@x.test').text();
     expect(html).not.toContain('a"<script>@x.test');
+  });
+});
+
+describe("the build stamp", () => {
+  const meta = { id: "c0ffee00-1111-2222-3333-444455556666", tag: "4e209d8", timestamp: "2026-11-17T23:00:00.000Z" };
+  const stamped = { ...env, CF_VERSION_METADATA: meta } as Env;
+  // No DB in env: a route that read D1 (currentUser on a cookie) would throw.
+  const get = (e: Env, init?: RequestInit) =>
+    worker.fetch(new Request("https://share.example.com/api/version", { headers: { Cookie: "s=x", Authorization: "Bearer x" }, ...init }), e);
+
+  test("GET /api/version answers from the binding, signed out, without D1", async () => {
+    const r = await get(stamped);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(r.headers.get("access-control-allow-origin")).toBeNull();
+    expect(await r.json()).toEqual({ commit: "4e209d8", version_id: meta.id, uploaded_at: meta.timestamp });
+  });
+
+  test("a trailing slash answers too; any other method does not get the stamp", async () => {
+    const slash = await worker.fetch(new Request("https://share.example.com/api/version/"), stamped);
+    expect((await slash.json()).commit).toBe("4e209d8");
+    // A POST goes on to the signed-in routes, which look up the caller (D1) instead of answering.
+    const post = await get(stamped, { method: "POST" }).catch(() => null);
+    expect(post === null || !(await post.text()).includes("4e209d8")).toBe(true);
+  });
+
+  test("an empty tag gives a null commit", async () => {
+    const r = await get({ ...env, CF_VERSION_METADATA: { ...meta, tag: "" } } as Env);
+    expect(await r.json()).toEqual({ commit: null, version_id: meta.id, uploaded_at: meta.timestamp });
+  });
+
+  test("no binding gives nulls", async () => {
+    const r = await get(env);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ commit: null, version_id: null, uploaded_at: null });
+  });
+
+  test("the gallery shows the commit once, escaped, when there is one", async () => {
+    const html = await galleryPage(stamped, "nate@example.com").text();
+    expect(html.split("tack 4e209d8").length).toBe(2);
+    const odd = await galleryPage({ ...env, CF_VERSION_METADATA: { ...meta, tag: "<b>x" } } as Env, "nate@example.com").text();
+    expect(odd).toContain("tack &lt;b&gt;x");
+    expect(odd).not.toContain("tack <b>x");
+  });
+
+  test("the gallery has no stamp line without a commit", async () => {
+    const plain = await galleryPage(env, "nate@example.com").text();
+    expect(plain).not.toMatch(/tack [0-9a-f]{7}/);
+    expect(plain).not.toContain(">tack </p>");
+    // Nothing else changes: the page with an empty tag is the page with no binding, but for the nonce.
+    const norm = (h: string) => h.replace(/nonce(-[^"' ;]*|="[^"]*")/g, "");
+    const empty = await galleryPage({ ...env, CF_VERSION_METADATA: { ...meta, tag: "" } } as Env, "nate@example.com").text();
+    expect(norm(empty)).toBe(norm(plain));
+  });
+});
+
+describe("the shared board page", () => {
+  test("its mark links home, like the viewer page's", async () => {
+    const html = await sharedBoardPage(env, {
+      title: "Plan",
+      sender: "nate@example.com",
+      sharedAt: Date.UTC(2026, 10, 17),
+      version: 3,
+      frameSrc: null,
+      frameOrigin: "",
+      openHref: null,
+    }).text();
+    expect(html).toContain('<a class="brand mini" href="/">');
+    expect(html).not.toContain('<span class="brand mini">');
+    expect(html).not.toContain("/logout");
+    expect(html).not.toContain("Sign out");
   });
 });
 

@@ -63,8 +63,12 @@ wrangler d1 create artifacts                  # paste the id into wrangler.jsonc
 wrangler r2 bucket create artifacts
 wrangler d1 migrations apply DB --remote
 openssl rand -base64 48 | wrangler secret put SESSION_SECRET
-wrangler deploy
+rev=$(git rev-parse --short HEAD)
+wrangler deploy --tag "$rev" --message "artifacts $rev"
 ```
+
+`--tag` stamps the version with the commit: `GET /api/version` returns it and the gallery shows it
+at the bottom ("tack <commit>"). Leave it out and both just have no commit.
 
 `wrangler.jsonc` is gitignored: keep your deployment's copy wherever you keep infrastructure
 config and copy it in before deploying.
